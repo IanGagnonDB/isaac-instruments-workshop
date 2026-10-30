@@ -17,13 +17,11 @@
 import os
 import sys
 
-try:
-    import video_cls                      # installed as a wheel by the bundle jobs
-except ImportError:                       # interactive run from the bundle folder
-    sys.path.insert(0, os.path.abspath("../src"))
-    import video_cls
-    from pyspark import cloudpickle
-    cloudpickle.register_pickle_by_value(video_cls)
+# Import video_cls from this Git folder; executors receive it by value (no wheel or install).
+sys.path.insert(0, os.path.abspath("../src"))
+import video_cls
+from pyspark import cloudpickle
+cloudpickle.register_pickle_by_value(video_cls)
 
 dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "")
@@ -38,8 +36,7 @@ volume = dbutils.widgets.get("volume")
 source_clips_path = dbutils.widgets.get("source_clips_path").strip()
 n_clips = int(dbutils.widgets.get("n_clips"))
 reset = dbutils.widgets.get("reset") == "true"
-if not catalog or not schema:
-    raise ValueError("Set the catalog and schema parameters (bundle variables).")
+video_cls.check_location(catalog, schema)
 
 root = f"/Volumes/{catalog}/{schema}/{volume}"
 events_table = f"{catalog}.{schema}.events"

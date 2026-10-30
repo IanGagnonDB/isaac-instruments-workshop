@@ -59,11 +59,9 @@ stops, 40% rolling stops at 5–15 km/h, and 25% with no real slowdown. The benc
 
 ## Prerequisites
 
-* Databricks CLI v0.250+ (`databricks bundle`) authenticated to your workspace (`-p <profile>`).
-* [`uv`](https://docs.astral.sh/uv/) on the machine that deploys. The bundle builds the `video_cls`
-  wheel with `uv build`.
 * A workspace that allows **classic job clusters** (serverless-only workspaces reject the setup and
-  benchmark jobs) and **serverless jobs** (scoring).
+  benchmark jobs) and **serverless compute** (scoring, and deploying from the workspace UI).
+* **Workspace files** enabled and **Git folders** available (the default).
 * An existing **catalog** you can `USE` and `CREATE SCHEMA` in, or an existing schema with `CREATE TABLE`
   and `CREATE VOLUME`.
 * **vCPU quota** for the node family. The four benchmark clusters start together and need
@@ -72,12 +70,19 @@ stops, 40% rolling stops at 5–15 km/h, and 25% with no real slowdown. The benc
 * Egress to `download.pytorch.org`, or to `huggingface.co` as the automatic fallback, for model weights.
   For the D2-City download only: egress to `download.scidb.cn`.
 
+No local tools are required. The Databricks CLI is optional (see below). Nothing is built at deploy time:
+notebooks import `src/video_cls` from the repository folder and ship it to Spark executors by value
+(`cloudpickle.register_pickle_by_value`).
+
 ## Bundle variables
+
+Set them in the `variables:` section of [`databricks.yml`](databricks.yml). From the CLI you can also pass
+`--var name=value`.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `catalog` | *(required)* | Never created by the bundle |
-| `schema` | *(required)* | Created by `00_setup` if missing |
+| `catalog` | `CHANGE_ME_CATALOG` | **Edit before deploying.** Existing catalog; never created by the bundle |
+| `schema` | `CHANGE_ME_SCHEMA` | **Edit before deploying.** Created by `00_setup` if missing |
 | `volume` | `video` | Created by `00_setup` if missing |
 | `source_clips_path` | empty | Folder of source MP4s. Empty = download D2-City |
 | `n_clips` | `2000` | clip_ids created by replication |
@@ -85,30 +90,55 @@ stops, 40% rolling stops at 5–15 km/h, and 25% with no real slowdown. The benc
 | `driver_node_type_id` | `Standard_F8s_v2` | Driver of the multi-node benchmark clusters |
 | `spark_version` | `18.x-cpu-ml-scala2.13` | 18 LTS ML (CPU). Check with `databricks clusters spark-versions` |
 
+Every notebook stops with a clear error if `catalog` or `schema` still contains `CHANGE_ME`.
+
 Every classic cluster uses **dedicated (single user) access mode**, so `/Volumes` paths work inside UDFs
 on executors. Photon is off (`runtime_engine: STANDARD`), because it does not speed up Python UDFs and
 costs more DBUs. Libraries are pinned against the DBR 18 ML stack (protobuf 5.29, numpy 2.1):
 `onnx==1.21.0`, `onnxruntime==1.31.0`, `opencv-python-headless==4.11.0.86`. Torch and torchvision
 come from the runtime.
 
-## Deploy and run
+## Deploy and run from a Git folder (no CLI)
+
+1. **Workspace → Create → Git folder**, and paste this repository's URL.
+2. In the Git folder, open **`databricks.yml`** and set `catalog` and `schema` under `variables:`.
+   Optionally also set `source_clips_path`, `n_clips` or the node types.
+3. With `databricks.yml` open, click the **Deployments** icon. Choose the
+   **dev** target and click **Deploy**. Review the validation summary and confirm.
+4. In **Bundle resources**, run the jobs in order with the ▶ icon:
+   1. `video-cls-setup`: setup → export_models → single_node_bench (one classic single-node cluster,
+      ~20 min)
+   2. `video-cls-benchmark`: 2 / 4 / 8 workers + 4 workers with `spark.task.cpus=2`, four classic
+      clusters in parallel (~16 min)
+   3. `video-cls-scoring`: score_events → report (serverless, ~1 min)
+   4. *(optional)* `video-cls-finetune-optional`: needs labelled frames, which D2-City doesn't have
+5. To change job parameters for one run (for example `max_clips` or `sign_class`), open the job from
+   **Bundle resources** and choose **Run now with different parameters**.
+
+Development-target deployments from the workspace are **source-linked**: jobs run the notebooks directly
+from the Git folder, so after a `git pull` the next run uses the new code. Redeploy only when
+`databricks.yml` or `resources/*.yml` change. Deploying runs the bundle as you; deploy only repositories
+you trust. The workspace UI can deploy only to the workspace that holds the Git folder.
+
+## Deploy and run with the CLI (optional)
+
+Use a local Databricks CLI v0.250+, or the one in the workspace **web terminal**.
 
 ```bash
-databricks bundle validate -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
-databricks bundle deploy   -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
+databricks bundle deploy -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
 
-# 1. setup -> export_models -> single_node_bench      (one classic single-node cluster)
 databricks bundle run video_cls_setup     -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
-# 2. 2 / 4 / 8 workers + 4 workers with spark.task.cpus=2, four classic clusters in parallel
 databricks bundle run video_cls_benchmark -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
-# 3. score_events -> report                            (serverless)
 databricks bundle run video_cls_scoring   -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
-# optional, needs labelled frames (not available for D2-City): fine-tune, then rerun 3 with sign_source=finetuned
+# optional, needs labelled frames (not available for D2-City): fine-tune, then rerun scoring with sign_source=finetuned
 databricks bundle run video_cls_finetune_optional -t dev ... --params export_unlabeled=300
 ```
 
-Use `-t prod` for a non-development deployment. Job parameters can be overridden per run with
-`--params`, for example `--params runs=resnet18:int8,resnet50:int8,max_clips=800`.
+`--var` can be dropped if `databricks.yml` already has your values. Use `-t prod` for a
+non-development deployment. Job parameters can be overridden per run with `--params`, for example
+`--params runs=resnet18:int8,resnet50:int8,max_clips=800`.
+
+## Notebooks
 
 | Notebook | Compute | What it does | Writes |
 |---|---|---|---|
@@ -136,8 +166,8 @@ classic cluster if serverless rejects it.
 
 ## Point it at your own clips
 
-1. Upload clips to any UC volume folder. Pass it as `--var source_clips_path=/Volumes/.../clips`,
-   and set `--var n_clips=<count>` to replicate them for scale testing.
+1. Upload clips to any UC volume folder. Set `source_clips_path` to that folder in `databricks.yml` (or
+   `--var source_clips_path=/Volumes/.../clips`). Set `n_clips` to replicate them for scale testing.
 2. To use real telemetry instead of the synthetic JSON, write one JSON per clip into
    `/Volumes/<catalog>/<schema>/<volume>/json/` with the fields `event_id, clip_id, clip_path,
    vehicle_no, driver_no, event_type, start_ts, speed_kmh` (2 Hz array). Run `00_setup` with
@@ -224,6 +254,8 @@ uv run pytest                # the PySpark tests need Java 17 (JAVA_HOME)
 including seek accuracy. Other tests cover the speed traces and replication, ONNX export and int8
 quantization, the UDF contract, the scoring SQL bands and window, the parallel-safe table helpers, and
 (with PySpark) the full `mapInPandas` → pandas UDF pipeline for both backends.
+`test_pickle_by_value.py` runs that pipeline with Spark workers that cannot import `video_cls`, as on a
+cluster where only the notebook added `src/` to its path.
 
 ## Licences
 

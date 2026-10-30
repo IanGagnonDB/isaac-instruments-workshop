@@ -11,6 +11,8 @@ PARAMS = [("catalog", ""), ("schema", ""), ("volume", "video")]
 for name, default in PARAMS:
     dbutils.widgets.text(name, default)
 catalog, schema = dbutils.widgets.get("catalog"), dbutils.widgets.get("schema")
+if not catalog or not schema or "CHANGE_ME" in catalog + schema:
+    raise ValueError("Set catalog and schema under `variables:` in databricks.yml and redeploy.")
 
 # COMMAND ----------
 import matplotlib.pyplot as plt

@@ -28,13 +28,11 @@
 import os
 import sys
 
-try:
-    import video_cls
-except ImportError:
-    sys.path.insert(0, os.path.abspath("../src"))
-    import video_cls
-    from pyspark import cloudpickle
-    cloudpickle.register_pickle_by_value(video_cls)
+# Import video_cls from this Git folder; executors receive it by value (no wheel or install).
+sys.path.insert(0, os.path.abspath("../src"))
+import video_cls
+from pyspark import cloudpickle
+cloudpickle.register_pickle_by_value(video_cls)
 
 from video_cls import TRAFFIC_LIGHT_CLASS
 
@@ -46,6 +44,7 @@ for name, default in PARAMS:
 p = {name: dbutils.widgets.get(name) for name, _ in PARAMS}
 
 catalog, schema = p["catalog"], p["schema"]
+video_cls.check_location(catalog, schema)
 models_dir = f"/Volumes/{catalog}/{schema}/{p['volume']}/models"
 if p["sign_source"] not in ("proxy", "finetuned"):
     raise ValueError("sign_source must be proxy or finetuned")

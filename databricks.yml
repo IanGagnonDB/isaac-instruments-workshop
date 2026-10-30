@@ -4,17 +4,19 @@ bundle:
 include:
   - resources/*.yml
 
-artifacts:
-  video_cls:
-    type: whl
-    build: uv build --wheel
-    path: .
+# Nothing is built at deploy time: notebooks import src/video_cls from this folder and ship it to
+# Spark executors by value. That keeps the bundle deployable from a Git folder in the workspace UI.
 
 variables:
+  # EDIT THESE TWO before deploying (workspace UI: edit this file in the Git folder, then Deploy).
+  # The CLI can override them instead: --var catalog=... --var schema=...
   catalog:
-    description: Existing Unity Catalog catalog (required; the bundle never creates catalogs).
+    description: Existing Unity Catalog catalog. The bundle never creates catalogs.
+    default: CHANGE_ME_CATALOG
   schema:
     description: Schema for tables and the volume. Created by 00_setup if missing.
+    default: CHANGE_ME_SCHEMA
+
   volume:
     description: Volume holding clips/, json/, models/ and labels/.
     default: video
@@ -30,7 +32,7 @@ variables:
     description: Worker node type. Compute-optimized, 8 to 16 vCPUs. Check quota in your region.
     default: Standard_F16s_v2
   driver_node_type_id:
-    description: Small driver for multi-node clusters, and the node for scoring/report.
+    description: Small driver for the multi-node benchmark clusters.
     default: Standard_F8s_v2
   spark_version:
     description: Latest LTS ML CPU runtime. Verified with `databricks clusters spark-versions`.

@@ -10,13 +10,11 @@
 import os
 import sys
 
-try:
-    import video_cls
-except ImportError:
-    sys.path.insert(0, os.path.abspath("../src"))
-    import video_cls
-    from pyspark import cloudpickle
-    cloudpickle.register_pickle_by_value(video_cls)
+# Import video_cls from this Git folder; executors receive it by value (no wheel or install).
+sys.path.insert(0, os.path.abspath("../src"))
+import video_cls
+from pyspark import cloudpickle
+cloudpickle.register_pickle_by_value(video_cls)
 
 dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "")
@@ -28,6 +26,7 @@ dbutils.widgets.text("threads", "0")       # 0 = all cores on this node
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
+video_cls.check_location(catalog, schema)
 volume = dbutils.widgets.get("volume")
 model_names = [m.strip() for m in dbutils.widgets.get("models").split(",") if m.strip()]
 batch_sizes = [int(b) for b in dbutils.widgets.get("batch_sizes").split(",")]

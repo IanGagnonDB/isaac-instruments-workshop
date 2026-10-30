@@ -35,4 +35,3 @@ resources:
             - pypi: {package: onnx==1.21.0}
             - pypi: {package: onnxruntime==1.31.0}
             - pypi: {package: opencv-python-headless==4.11.0.86}
-            - whl: ../dist/*.whl

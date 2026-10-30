@@ -1,9 +1,15 @@
-"""pandas UDF factories for frame classification. Model loaded once per task, batched by Arrow."""
+"""pandas UDF factories for frame classification. Model loaded once per task, batched by Arrow.
+
+Executors never import video_cls: the notebooks register the package with
+cloudpickle.register_pickle_by_value, so everything a UDF uses must be a module-level name
+(shipped by value with the UDF), not an import inside the UDF body.
+"""
 from typing import Iterator
 
 import numpy as np
 import pandas as pd
 
+from video_cls.models import OnnxPredictor, TorchPredictor
 from video_cls.preprocess import preprocess_batch, softmax
 
 PRED_SCHEMA = "label int, score float"
@@ -25,7 +31,6 @@ def make_classify(model_path, threads=1):
 
     @pandas_udf(PRED_SCHEMA)
     def classify(batches: Iterator[pd.Series]) -> Iterator[pd.DataFrame]:
-        from video_cls.models import OnnxPredictor
         yield from classify_batches(batches, OnnxPredictor(model_path, threads))
 
     return classify
@@ -37,7 +42,6 @@ def make_classify_torch(model_path, threads=1):
 
     @pandas_udf(PRED_SCHEMA)
     def classify(batches: Iterator[pd.Series]) -> Iterator[pd.DataFrame]:
-        from video_cls.models import TorchPredictor
         yield from classify_batches(batches, TorchPredictor(model_path, threads))
 
     return classify

@@ -22,13 +22,11 @@
 import os
 import sys
 
-try:
-    import video_cls
-except ImportError:
-    sys.path.insert(0, os.path.abspath("../src"))
-    import video_cls
-    from pyspark import cloudpickle
-    cloudpickle.register_pickle_by_value(video_cls)
+# Import video_cls from this Git folder; executors receive it by value (no wheel or install).
+sys.path.insert(0, os.path.abspath("../src"))
+import video_cls
+from pyspark import cloudpickle
+cloudpickle.register_pickle_by_value(video_cls)
 
 PARAMS = [("catalog", ""), ("schema", ""), ("volume", "video"), ("epochs", "8"), ("export_unlabeled", "0")]
 for name, default in PARAMS:
@@ -36,6 +34,7 @@ for name, default in PARAMS:
 p = {name: dbutils.widgets.get(name) for name, _ in PARAMS}
 
 catalog, schema = p["catalog"], p["schema"]
+video_cls.check_location(catalog, schema)
 root = f"/Volumes/{catalog}/{schema}/{p['volume']}"
 models_dir, labels_dir = f"{root}/models", f"{root}/labels"
 
