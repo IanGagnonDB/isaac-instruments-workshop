@@ -45,6 +45,10 @@ p = {name: dbutils.widgets.get(name) for name, _ in PARAMS}
 
 catalog, schema = p["catalog"], p["schema"]
 video_cls.check_location(catalog, schema)
+events_table = f"{catalog}.{schema}.events"
+if not spark.catalog.tableExists(events_table):
+    raise RuntimeError(f"{events_table} does not exist. Run the setup job (video-cls-setup) for schema "
+                       f"'{schema}' first; then the benchmark job, so scoring can reuse its predictions.")
 models_dir = f"/Volumes/{catalog}/{schema}/{p['volume']}/models"
 if p["sign_source"] not in ("proxy", "finetuned"):
     raise ValueError("sign_source must be proxy or finetuned")
@@ -83,7 +87,7 @@ def ensure_frames():
     global frames_table
     if frames_table is None:
         frames_table = f"{catalog}.{schema}.frames_scoring"
-        (spark.table(f"{catalog}.{schema}.events").select("clip_id", "clip_path")
+        (spark.table(events_table).select("clip_id", "clip_path")
          .repartition(n_partitions)
          .mapInPandas(functools.partial(extract_frames, n_frames=10), FRAME_SCHEMA)
          .write.mode("overwrite").saveAsTable(frames_table))
@@ -118,7 +122,7 @@ else:
 
 preds.select("clip_id", "ts_s", "label", "score").createOrReplaceTempView("scoring_predictions")
 # Score only events whose clip has frame predictions (the benchmark may cover a subset of clips).
-spark.sql(f"""SELECT * FROM {catalog}.{schema}.events
+spark.sql(f"""SELECT * FROM {events_table}
               WHERE clip_id IN (SELECT clip_id FROM scoring_predictions)""").createOrReplaceTempView("scoring_events")
 print(f"Scoring with {model_name} (sign label {sign_label}, threshold {p['score_threshold']}); "
       f"predictions from {predictions_table if p['sign_source'] == 'proxy' and predictions_table else 'this run'}")
@@ -133,7 +137,7 @@ scores = spark.sql(scoring_sql(
 scores.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{catalog}.{schema}.event_scores")
 
 event_scores = spark.table(f"{catalog}.{schema}.event_scores")
-n_events = spark.table(f"{catalog}.{schema}.events").count()
+n_events = spark.table(events_table).count()
 print(f"event_scores: {event_scores.count()} of {n_events} events scored (events with frame predictions)")
 display(event_scores.groupBy("severity").count().orderBy("severity"))
 
@@ -143,5 +147,5 @@ display(event_scores.groupBy("severity").count().orderBy("severity"))
 # MAGIC model and the speed trace is synthetic, so the two are independent by construction.
 
 # COMMAND ----------
-display(event_scores.join(spark.table(f"{catalog}.{schema}.events").select("clip_id", "speed_profile"), "clip_id")
+display(event_scores.join(spark.table(events_table).select("clip_id", "speed_profile"), "clip_id")
         .groupBy("speed_profile").pivot("severity").count().orderBy("speed_profile"))

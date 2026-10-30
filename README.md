@@ -52,7 +52,7 @@ stored in Git. `00_setup` gets source clips in one of two ways:
 * `source_clips_path` empty: downloads the D2-City ZIP once into `<volume>/d2_city/` with
   `video_cls/d2_city.py`, then reuses it.
 
-The sources are replicated to `n_clips` clip_ids (default 2,000) under `clips/` as plain byte copies,
+The sources are replicated to `n_clips` clip_ids (default 1,000) under `clips/` as plain byte copies,
 with no re-encoding. Each clip gets a synthetic event JSON with a 2 Hz `speed_kmh` trace: about 35% full
 stops, 40% rolling stops at 5–15 km/h, and 25% with no real slowdown. The benchmark uses the first
 `max_clips` of them (default 400).
@@ -85,7 +85,7 @@ Set them in the `variables:` section of [`databricks.yml`](databricks.yml). From
 | `schema` | `CHANGE_ME_SCHEMA` | **Edit before deploying.** Created by `00_setup` if missing |
 | `volume` | `video` | Created by `00_setup` if missing |
 | `source_clips_path` | empty | Folder of source MP4s. Empty = download D2-City |
-| `n_clips` | `2000` | clip_ids created by replication |
+| `n_clips` | `1000` | clip_ids created by replication |
 | `node_type_id` | `Standard_F16s_v2` | Workers, and the setup / single-node benchmark node |
 | `driver_node_type_id` | `Standard_F8s_v2` | Driver of the multi-node benchmark clusters |
 | `spark_version` | `18.x-cpu-ml-scala2.13` | 18 LTS ML (CPU). Check with `databricks clusters spark-versions` |
@@ -202,10 +202,10 @@ for speed comparisons and fp32 for decisions.
 * **Inference barely scales at 4,000 frames.** At ~13 frames/s per core (resnet18 fp32), that is ~10 s
   of model compute on 32 cores and ~2.5 s on 128. Each run took ~21 s regardless, so ~18 s is fixed
   overhead: Spark job start, reading frames, the shuffle, per-task model loading and the Delta write. To
-  see inference scaling, give the stage more frames. `max_clips=0` (20,000 frames) helps but also makes
-  extraction ~5× longer. Even then the 8-worker point is only ~12 s of compute.
+  see inference scaling, give the stage more frames. `max_clips=0` (all 1,000 default clips, 10,000 frames) helps but also makes
+  extraction ~2.5× longer. Even then the 8-worker point is only ~6 s of compute.
 * `spark.task.cpus=2` with 2 threads per task was about the same as 1 thread per vCPU.
-* Wall-clock: setup job 20 min (15 of them D2-City download + copy). Benchmark 16 min (~7 min cluster
+* Wall-clock: setup job 20 min with 2,000 clips (15 of them D2-City download + copy). Benchmark 16 min (~7 min cluster
   start + 5–8 min work, in parallel). Scoring + report about 1 min on serverless.
 * A 1-worker task was dropped: at 2,000 clips its extraction alone ran past 17 minutes.
 * `sign_class=920` scored 138 of 400 events. Full stops landed in `ok`, rolling stops in `low`/`medium`,
@@ -237,10 +237,10 @@ Cost ≈ Σ over tasks of (nodes × DBU/hour per node × hours) + the VM cost of
 * **Benchmark job**: four clusters at once (2, 4, 8, 4 workers, plus a driver each), each paying ~7 min
   of start-up plus extraction and six inference passes. Running them in parallel cuts wall-clock time,
   not DBUs. Trim `runs` or `max_clips` to cut both.
-* **Setup job**: one 16-vCPU node. Downloading and copying 2,000 × ~15 MB clips (~30 GB) dominates; use a
+* **Setup job**: one 16-vCPU node. Downloading D2-City and copying 1,000 × ~15 MB clips (~15 GB) dominates; use a
   smaller `n_clips` for a quicker first run.
 * **Scoring/report**: serverless jobs (performance-optimized) for about a minute.
-* Storage: ~30 GB of replicated clips (plus the D2-City ZIP and extract, if downloaded) and small Delta
+* Storage: ~15 GB of replicated clips (plus the D2-City ZIP and extract, if downloaded) and small Delta
   tables.
 
 ## Local tests

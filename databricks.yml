@@ -27,7 +27,7 @@ variables:
     default: ""
   n_clips:
     description: Number of clip_ids to create by replicating the source clips.
-    default: "2000"
+    default: "1000"
   node_type_id:
     description: Worker node type. Compute-optimized, 8 to 16 vCPUs. Check quota in your region.
     default: Standard_F16s_v2

@@ -27,7 +27,7 @@ dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "")
 dbutils.widgets.text("volume", "video")
 dbutils.widgets.text("source_clips_path", "")
-dbutils.widgets.text("n_clips", "2000")
+dbutils.widgets.text("n_clips", "1000")
 dbutils.widgets.dropdown("reset", "false", ["false", "true"])
 
 catalog = dbutils.widgets.get("catalog")
