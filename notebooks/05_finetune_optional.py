@@ -2,6 +2,10 @@
 # MAGIC %md
 # MAGIC # 05 · Optional: fine-tune `stop_sign_visible` yes/no
 # MAGIC
+# MAGIC > **Not runnable with the current dataset.** D2-City has no stop-sign labels, so `labels/yes` and
+# MAGIC > `labels/no` start empty and this notebook exits with "Skipped". It needs a labelled set first:
+# MAGIC > ISAAC's own frames sorted by hand, or another dataset with stop-sign annotations.
+# MAGIC
 # MAGIC Freezes the ResNet-18 backbone from 01 and trains a new 2-class head on CPU from labelled frames:
 # MAGIC
 # MAGIC ```

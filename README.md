@@ -34,6 +34,9 @@ ImageNet-1k has **no "stop sign" class**, and a classifier returns one label per
   is almost never a frame's top-1 label on this footage. In the reference run, ResNet-18 had 0 of 3,992
   frames and every event scored `none`. Use `--params sign_class=919` to reproduce that.
 * The optional notebook 05 retrains the last layer as `stop_sign_visible: yes/no` on frames you label.
+  **It is not runnable with the current dataset:** D2-City has no stop-sign labels, so `labels/yes` and
+  `labels/no` are empty and the job exits with "Skipped". It needs a hand-labelled set (for example
+  ISAAC's own frames) or a dataset with stop-sign annotations.
 * To know *where* the sign is and how close, the next step is a COCO-trained detector (DETR-ResNet-50
   or RT-DETR, both Apache 2.0) that has a real "stop sign" class. That is out of scope here.
 * `04_score_events` is a demonstration rule, not a validated severity model. The speed traces are
@@ -100,7 +103,7 @@ databricks bundle run video_cls_setup     -t dev --var catalog=my_catalog --var 
 databricks bundle run video_cls_benchmark -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
 # 3. score_events -> report                            (serverless)
 databricks bundle run video_cls_scoring   -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
-# optional: fine-tune stop_sign_visible, then rerun 3 with sign_source=finetuned
+# optional, needs labelled frames (not available for D2-City): fine-tune, then rerun 3 with sign_source=finetuned
 databricks bundle run video_cls_finetune_optional -t dev ... --params export_unlabeled=300
 ```
 
@@ -114,7 +117,7 @@ Use `-t prod` for a non-development deployment. Job parameters can be overridden
 | `02_single_node_bench` | classic, 1 node | {resnet18, resnet50} × {torch, fp32, int8} × batch {1, 16, 64}, 500 frames, driver only | `bench_single_node` |
 | `03_cluster_bench` | classic, 2–8 workers | Full Spark pipeline; extraction once per cluster, then one inference pass per `runs` entry | `frames_<label>`, `frame_predictions_<label>`, `bench_cluster` |
 | `04_score_events` | serverless | Sign visible (`sign_class` proxy or fine-tuned) + min speed within `window_s` → severity | `event_scores` |
-| `05_finetune_optional` | classic, 1 node | Frozen ResNet-18, new 2-class head from `labels/yes`, `labels/no`; ONNX + int8 export | `models/stopsign_resnet18*` |
+| `05_finetune_optional` | classic, 1 node | Frozen ResNet-18, new 2-class head from `labels/yes`, `labels/no`; ONNX + int8 export. Not runnable on D2-City (no labels) | `models/stopsign_resnet18*` |
 | `06_report` | serverless | ms/frame per backend; frames/s vs cores with a linear-scaling line; extract vs inference share; conclusion | — |
 
 `03_cluster_bench` job parameters: `runs` (comma list of `model:variant`, variant ∈ `torch`, `fp32`,
@@ -166,9 +169,11 @@ for speed comparisons and fp32 for decisions.
 * **Frame extraction dominates** (80–95% of pipeline time) and scales 2.7× from 2 to 8 workers (68% of
   linear). Seeking in 1080p H.264 runs at about 1 frame/s per vCPU. The four clusters shared storage
   bandwidth, so isolated runs may extract faster.
-* **Inference barely scales at 4,000 frames.** That is under a second of model compute on 128 cores,
-  so per-task model loading, the shuffle and the Delta write dominate. Measure inference scaling with
-  `max_clips=0` (20,000 frames).
+* **Inference barely scales at 4,000 frames.** At ~13 frames/s per core (resnet18 fp32), that is ~10 s
+  of model compute on 32 cores and ~2.5 s on 128. Each run took ~21 s regardless, so ~18 s is fixed
+  overhead: Spark job start, reading frames, the shuffle, per-task model loading and the Delta write. To
+  see inference scaling, give the stage more frames. `max_clips=0` (20,000 frames) helps but also makes
+  extraction ~5× longer. Even then the 8-worker point is only ~12 s of compute.
 * `spark.task.cpus=2` with 2 threads per task was about the same as 1 thread per vCPU.
 * Wall-clock: setup job 20 min (15 of them D2-City download + copy). Benchmark 16 min (~7 min cluster
   start + 5–8 min work, in parallel). Scoring + report about 1 min on serverless.
