@@ -5,9 +5,9 @@
 # MAGIC > **Demonstration rule, not a validated severity model.**
 # MAGIC
 # MAGIC * `sign_visible`: any frame of the clip whose top-1 label is `sign_class` with score above
-# MAGIC   `score_threshold`. **ImageNet has no stop-sign class, so this is a proxy**: 919 "street sign" by
-# MAGIC   default. On D2-City footage 919 is almost never top-1, so 920 "traffic light" (common at
-# MAGIC   intersections) is a usable alternative proxy. With `sign_source = finetuned`, the Step 8
+# MAGIC   `score_threshold`. **ImageNet has no stop-sign class, so this is a proxy**: 920 "traffic light"
+# MAGIC   (common at intersections) by default. 919 "street sign" is the closer class, but on D2-City
+# MAGIC   footage it is almost never top-1, so every event scores `none`. With `sign_source = finetuned`, the Step 8
 # MAGIC   `stop_sign_visible` model is used instead and `sign_class` is ignored.
 # MAGIC * `min_speed_kmh`: minimum of the 2 Hz speed trace within `window_s` of the frames where the sign is
 # MAGIC   visible. For clips without a visible sign it is the whole-clip minimum, for context only.
@@ -36,10 +36,10 @@ except ImportError:
     from pyspark import cloudpickle
     cloudpickle.register_pickle_by_value(video_cls)
 
-from video_cls import STREET_SIGN_CLASS
+from video_cls import TRAFFIC_LIGHT_CLASS
 
 PARAMS = [("catalog", ""), ("schema", ""), ("volume", "video"), ("model", "resnet18"),
-          ("variant", "fp32"), ("sign_source", "proxy"), ("sign_class", str(STREET_SIGN_CLASS)),
+          ("variant", "fp32"), ("sign_source", "proxy"), ("sign_class", str(TRAFFIC_LIGHT_CLASS)),
           ("score_threshold", "0.3"), ("window_s", "3"), ("ok_below_kmh", "2"), ("low_below_kmh", "8"), ("medium_below_kmh", "15")]
 for name, default in PARAMS:
     dbutils.widgets.text(name, default)

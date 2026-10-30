@@ -14,7 +14,7 @@ resources:
         - {name: model, default: resnet18}
         - {name: variant, default: fp32}             # fp32 matches PyTorch top-1; int8 agreement was 62-77%
         - {name: sign_source, default: proxy}        # proxy = ImageNet class below; finetuned = Step 8 model
-        - {name: sign_class, default: "919"}         # 919 "street sign"; 920 "traffic light" fires far more on D2-City
+        - {name: sign_class, default: "920"}         # 920 "traffic light"; 919 "street sign" is almost never top-1 on D2-City
         - {name: score_threshold, default: "0.3"}
         - {name: window_s, default: "3"}
         - {name: ok_below_kmh, default: "2"}

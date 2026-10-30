@@ -29,10 +29,10 @@ tables, so the clusters can run in parallel.
 ImageNet-1k has **no "stop sign" class**, and a classifier returns one label per frame, not a location.
 
 * That doesn't matter for the benchmark, which measures speed and scaling.
-* The rolling-stop demo uses a clearly labelled **proxy class**: the `sign_class` parameter, default 919
-  "street sign". On D2-City footage, 919 is almost never a frame's top-1 label. In the reference run,
-  ResNet-18 had 0 of 3,992 frames and every event scored `none`. Class **920 "traffic light"** is
-  top-1 on ~15% of frames and gives a usable demo: `--params sign_class=920`.
+* The rolling-stop demo uses a clearly labelled **proxy class**: the `sign_class` parameter, default
+  **920 "traffic light"**, which is top-1 on ~15% of D2-City frames. The closer class, 919 "street sign",
+  is almost never a frame's top-1 label on this footage. In the reference run, ResNet-18 had 0 of 3,992
+  frames and every event scored `none`. Use `--params sign_class=919` to reproduce that.
 * The optional notebook 05 retrains the last layer as `stop_sign_visible: yes/no` on frames you label.
 * To know *where* the sign is and how close, the next step is a COCO-trained detector (DETR-ResNet-50
   or RT-DETR, both Apache 2.0) that has a real "stop sign" class. That is out of scope here.
@@ -99,8 +99,7 @@ databricks bundle run video_cls_setup     -t dev --var catalog=my_catalog --var 
 # 2. 2 / 4 / 8 workers + 4 workers with spark.task.cpus=2, four classic clusters in parallel
 databricks bundle run video_cls_benchmark -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
 # 3. score_events -> report                            (serverless)
-databricks bundle run video_cls_scoring   -t dev --var catalog=my_catalog --var schema=video_demo -p <profile> \
-  --params sign_class=920
+databricks bundle run video_cls_scoring   -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
 # optional: fine-tune stop_sign_visible, then rerun 3 with sign_source=finetuned
 databricks bundle run video_cls_finetune_optional -t dev ... --params export_unlabeled=300
 ```
@@ -125,7 +124,7 @@ Use `-t prod` for a non-development deployment. Job parameters can be overridden
 which is safe from parallel clusters.
 
 `04_score_events` parameters: `model` / `variant` (default resnet18 **fp32**; int8 disagrees with PyTorch
-too often, see below), `sign_class` (default 919), `score_threshold` (0.3), `window_s` (3) and the
+too often, see below), `sign_class` (default 920 "traffic light"), `score_threshold` (0.3), `window_s` (3) and the
 severity thresholds. It reuses a benchmark `frame_predictions_<label>` table and scores only the events
 those predictions cover (the first `max_clips` clips). Without benchmark predictions, or with
 `sign_source=finetuned`, it classifies frames itself with a UDF that loads the model from `/Volumes`.
