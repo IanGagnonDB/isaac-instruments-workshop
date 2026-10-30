@@ -1,0 +1,17 @@
+# Optional, off the critical path: log the benchmark tables as an MLflow experiment (07).
+# Serverless, about a minute; reads bench_single_node / model_exports / bench_cluster, measures nothing.
+resources:
+  jobs:
+    video_cls_mlflow_optional:
+      name: video-cls-mlflow-optional
+      max_concurrent_runs: 1
+      performance_target: PERFORMANCE_OPTIMIZED      # fast serverless start-up rather than lowest cost
+      parameters:
+        - {name: catalog, default: "${var.catalog}"}
+        - {name: schema, default: "${var.schema}"}
+        - {name: experiment_path, default: ""}       # empty = /Users/<you>/isaac-video-classification
+
+      tasks:
+        - task_key: log_experiment
+          notebook_task:
+            notebook_path: ../notebooks/07_mlflow_experiment_optional.py
