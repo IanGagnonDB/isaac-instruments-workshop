@@ -1,0 +1,32 @@
+# Rolling-stop scoring + report on serverless: no cluster start-up, and no Spark UDFs on the default
+# path (04 joins the benchmark's frame predictions in SQL; 06 plots small tables on the driver).
+# 04 installs onnx/onnxruntime/opencv itself and imports video_cls from the bundle's src/ folder.
+resources:
+  jobs:
+    video_cls_scoring:
+      name: 02-video-cls-scoring
+      max_concurrent_runs: 1
+      performance_target: PERFORMANCE_OPTIMIZED      # fast serverless start-up rather than lowest cost
+      parameters:
+        - {name: catalog, default: "${var.catalog}"}
+        - {name: schema, default: "${var.schema}"}
+        - {name: volume, default: "${var.volume}"}
+        - {name: model, default: resnet18}
+        - {name: variant, default: fp32}             # fp32 matches PyTorch top-1; int8 agreement was 62-77%
+        - {name: sign_source, default: proxy}        # proxy = ImageNet class below; finetuned = Step 8 model
+        - {name: sign_class, default: "920"}         # 920 "traffic light"; 919 "street sign" is almost never top-1 on D2-City
+        - {name: score_threshold, default: "0.3"}
+        - {name: window_s, default: "3"}
+        - {name: ok_below_kmh, default: "2"}
+        - {name: low_below_kmh, default: "8"}
+        - {name: medium_below_kmh, default: "15"}
+
+      tasks:
+        - task_key: score_events
+          notebook_task:
+            notebook_path: ../notebooks/04_score_events.py
+
+        - task_key: report
+          depends_on: [{task_key: score_events}]
+          notebook_task:
+            notebook_path: ../notebooks/06_report.py

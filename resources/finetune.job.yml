@@ -1,0 +1,37 @@
+# Optional Step 8: fine-tune ResNet-18 as stop_sign_visible yes/no on a single CPU node.
+resources:
+  jobs:
+    video_cls_finetune_optional:
+      name: 04-video-cls-finetune-optional
+      max_concurrent_runs: 1
+      parameters:
+        - {name: catalog, default: "${var.catalog}"}
+        - {name: schema, default: "${var.schema}"}
+        - {name: volume, default: "${var.volume}"}
+        - {name: epochs, default: "8"}
+        - {name: export_unlabeled, default: "0"}     # >0: write that many frames to labels/unlabeled/ and stop
+
+      job_clusters:
+        - job_cluster_key: single_node
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type_id}
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            single_user_name: ${workspace.current_user.userName}
+            runtime_engine: STANDARD
+            spark_conf:
+              spark.master: "local[*, 4]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: finetune
+          job_cluster_key: single_node
+          notebook_task:
+            notebook_path: ../notebooks/05_finetune_optional.py
+          libraries:
+            - pypi: {package: onnx==1.21.0}
+            - pypi: {package: onnxruntime==1.31.0}
+            - pypi: {package: opencv-python-headless==4.11.0.86}

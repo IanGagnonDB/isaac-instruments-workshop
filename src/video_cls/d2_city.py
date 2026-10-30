@@ -1,7 +1,8 @@
 """Download D2-City, extract raw videos, and build deterministic benchmark copies.
 
 CLI: --root data/ --copies 9 --workers 16.
-Databricks: use notebooks/optional_prepare_dataset.py to call this module.
+Databricks: notebooks/00_setup.py calls run_workshop(copies=1) when the
+source_clips_path bundle variable is empty, then uses the MP4s under raw/.
 The raw/ and benchmark/ folders must be empty or absent. Copies means the total
 number of benchmark instances per source, with copy_index starting at 1.
 Manifest source_file values are paths relative to raw/.

@@ -1,0 +1,54 @@
+# Setup -> model export -> single-node benchmark, all on one single-node job cluster.
+# The node matches the benchmark workers (node_type_id) so per-core numbers are comparable.
+resources:
+  jobs:
+    video_cls_setup:
+      name: 00-video-cls-setup
+      max_concurrent_runs: 1
+      parameters:
+        - {name: catalog, default: "${var.catalog}"}
+        - {name: schema, default: "${var.schema}"}
+        - {name: volume, default: "${var.volume}"}
+
+      job_clusters:
+        - job_cluster_key: single_node
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type_id}
+            num_workers: 0
+            data_security_mode: SINGLE_USER           # dedicated: /Volumes paths work in UDFs
+            single_user_name: ${workspace.current_user.userName}
+            runtime_engine: STANDARD                  # Photon off: no gain for Python UDFs
+            spark_conf:
+              spark.master: "local[*, 4]"
+              spark.databricks.cluster.profile: singleNode
+              spark.sql.execution.arrow.maxRecordsPerBatch: "64"
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: setup
+          job_cluster_key: single_node
+          notebook_task:
+            notebook_path: ../notebooks/00_setup.py
+            base_parameters:
+              source_clips_path: ${var.source_clips_path}
+              n_clips: ${var.n_clips}
+          libraries: &libraries
+            - pypi: {package: onnx==1.21.0}
+            - pypi: {package: onnxruntime==1.31.0}
+            - pypi: {package: opencv-python-headless==4.11.0.86}
+
+        - task_key: export_models
+          depends_on: [{task_key: setup}]
+          job_cluster_key: single_node
+          notebook_task:
+            notebook_path: ../notebooks/01_export_models.py
+          libraries: *libraries
+
+        - task_key: single_node_bench
+          depends_on: [{task_key: export_models}]
+          job_cluster_key: single_node
+          notebook_task:
+            notebook_path: ../notebooks/02_single_node_bench.py
+          libraries: *libraries

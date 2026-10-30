@@ -1,0 +1,33 @@
+[project]
+name = "video_cls"
+version = "0.1.0"
+description = "CPU video frame classification at scale with Spark (ISAAC Instruments workshop)"
+requires-python = "==3.12.*"            # DBR 18 LTS ML runs Python 3.12
+# Local development and tests only. Nothing is built or installed on Databricks: notebooks import
+# src/video_cls from the Git folder and ship it to executors by value. The ML runtime supplies torch,
+# numpy and pandas; jobs install the pinned onnx/onnxruntime/opencv as cluster libraries.
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "numpy==2.1.3",
+  "pandas==2.2.3",
+  "pyarrow==21.0.0",
+  "protobuf==5.29.4",
+  "onnx==1.21.0",
+  "onnxruntime==1.31.0",
+  "opencv-python-headless==4.11.0.86",
+  "torch==2.9.0",
+  "torchvision==0.24.0",
+  "pyspark==4.1.0",
+  "mlflow-skinny==3.17.2",
+  "matplotlib==3.10.0",
+]
+
+[tool.uv]
+package = false                          # never install video_cls; tests import it from src/
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

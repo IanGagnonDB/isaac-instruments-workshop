@@ -1,0 +1,83 @@
+# Scaling benchmark: the same 03_cluster_bench.py on 2, 4 and 8 workers, plus a 4-worker
+# run with spark.task.cpus=2 / ort_threads=2 (Azure vCPUs are hyperthreads).
+# 1 worker is left out to save time: at ~1 extracted frame/s per vCPU it was the longest task.
+# All four tasks run in parallel, each on its own cluster, writing frames_<label> and
+# frame_predictions_<label>; bench_cluster only receives appends.
+# Peak quota: 18 x node_type_id + 4 x driver_node_type_id (320 vCPUs with the defaults).
+# Parallel clusters share the volume's storage bandwidth, so extraction times can read lower
+# than isolated runs. Add depends_on between tasks to run them one at a time instead.
+resources:
+  jobs:
+    video_cls_benchmark:
+      name: 01-video-cls-benchmark
+      max_concurrent_runs: 1
+      parameters:
+        - {name: catalog, default: "${var.catalog}"}
+        - {name: schema, default: "${var.schema}"}
+        - {name: volume, default: "${var.volume}"}
+        - name: runs
+          default: "resnet18:fp32,resnet18:int8,resnet18:torch,resnet50:fp32,resnet50:int8,resnet50:torch"
+        - {name: n_partitions, default: "0"}         # 0 = 3 x task slots
+        - {name: batch_size, default: "64"}          # Arrow maxRecordsPerBatch = images per forward pass
+        - {name: n_frames, default: "10"}
+        - {name: max_clips, default: "400"}          # first N clip_ids; 0 = all clips in events
+
+      job_clusters:
+        - job_cluster_key: w2
+          new_cluster: &cluster
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type_id}
+            driver_node_type_id: ${var.driver_node_type_id}
+            num_workers: 2
+            data_security_mode: SINGLE_USER           # dedicated: /Volumes paths work in UDFs
+            single_user_name: ${workspace.current_user.userName}
+            runtime_engine: STANDARD                  # Photon off: no gain for Python UDFs
+            spark_conf:
+              spark.sql.execution.arrow.maxRecordsPerBatch: "64"
+        - job_cluster_key: w4
+          new_cluster:
+            <<: *cluster
+            num_workers: 4
+        - job_cluster_key: w8
+          new_cluster:
+            <<: *cluster
+            num_workers: 8
+        - job_cluster_key: w4_ht
+          new_cluster:
+            <<: *cluster
+            num_workers: 4
+            spark_conf:
+              spark.sql.execution.arrow.maxRecordsPerBatch: "64"
+              spark.task.cpus: "2"
+
+      tasks:
+        - task_key: bench_2w
+          job_cluster_key: w2
+          notebook_task:
+            notebook_path: ../notebooks/03_cluster_bench.py
+            base_parameters: {num_workers: "2", ort_threads: "1", run_label: "2w"}
+          libraries: &libraries
+            - pypi: {package: onnx==1.21.0}
+            - pypi: {package: onnxruntime==1.31.0}
+            - pypi: {package: opencv-python-headless==4.11.0.86}
+
+        - task_key: bench_4w
+          job_cluster_key: w4
+          notebook_task:
+            notebook_path: ../notebooks/03_cluster_bench.py
+            base_parameters: {num_workers: "4", ort_threads: "1", run_label: "4w"}
+          libraries: *libraries
+
+        - task_key: bench_8w
+          job_cluster_key: w8
+          notebook_task:
+            notebook_path: ../notebooks/03_cluster_bench.py
+            base_parameters: {num_workers: "8", ort_threads: "1", run_label: "8w"}
+          libraries: *libraries
+
+        - task_key: bench_4w_hyperthread
+          job_cluster_key: w4_ht
+          notebook_task:
+            notebook_path: ../notebooks/03_cluster_bench.py
+            base_parameters: {num_workers: "4", ort_threads: "2", run_label: "4w_task_cpus_2"}
+          libraries: *libraries

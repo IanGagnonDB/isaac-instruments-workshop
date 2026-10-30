@@ -11,8 +11,12 @@ __pycache__/
 .DS_Store
 /.isaac/
 
+# Bundle state and build outputs (workshop bundle and app/ bundle)
+.databricks/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+
 # App frontend build
 node_modules/
-
-# Databricks Asset Bundle state and local variable overrides
-.databricks/
