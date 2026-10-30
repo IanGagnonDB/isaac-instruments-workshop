@@ -60,7 +60,9 @@ for folder in ("clips", "json", "models", "labels/yes", "labels/no"):
 # MAGIC %md
 # MAGIC ## Source clips
 # MAGIC D2-City (public dashcam footage, ~30 s 1080p clips) is the default. If `source_clips_path` is empty
-# MAGIC the downloader stages it once under `d2_city/raw/` and later runs reuse it.
+# MAGIC the downloader stages it once under `d2_city/raw/` (download + extract, no other copies) and later
+# MAGIC runs reuse it: if `raw/` already holds MP4s, nothing is downloaded. A `d2_city/benchmark/` folder
+# MAGIC left by an older version of this notebook is unused and can be deleted.
 
 # COMMAND ----------
 from video_cls import d2_city
@@ -72,7 +74,9 @@ if not source_clips_path:
     has_raw = os.path.isdir(raw) and any(f.endswith(".mp4") for _, _, fs in os.walk(raw) for f in fs)
     if not has_raw:
         print("Downloading D2-City (one ZIP, a few minutes in Canada Central)...")
-        d2_city.run_workshop(root=d2_root, copies=1)
+        d2_city.download_and_extract(root=d2_root)
+    else:
+        print(f"Reusing the MP4s already in {raw}: no download.")
     source_clips_path = raw
 
 sources = find_sources(source_clips_path)

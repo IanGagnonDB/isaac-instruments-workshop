@@ -1,11 +1,11 @@
 """Download D2-City, extract raw videos, and build deterministic benchmark copies.
 
-CLI: --root data/ --copies 9 --workers 16.
-Databricks: notebooks/00_setup.py calls run_workshop(copies=1) when the
-source_clips_path bundle variable is empty, then uses the MP4s under raw/.
-The raw/ and benchmark/ folders must be empty or absent. Copies means the total
-number of benchmark instances per source, with copy_index starting at 1.
-Manifest source_file values are paths relative to raw/.
+CLI: --root data/ --copies 9 --workers 16 (download, extract, then benchmark/ copies).
+Databricks: notebooks/00_setup.py calls download_and_extract() when the
+source_clips_path bundle variable is empty, then replicates the MP4s under raw/ itself;
+it never makes benchmark/ copies. For the CLI, the raw/ and benchmark/ folders must be
+empty or absent. Copies means the total number of benchmark instances per source, with
+copy_index starting at 1. Manifest source_file values are paths relative to raw/.
 
 The downloader uses 16 threads and 32 MiB ranges by default. One measured Azure
 Canada Central download took 3m 07s, or 3m 36s including ZIP validation and saving.
@@ -158,25 +158,20 @@ def run(volume_root, url=URL, chunk_bytes=32*1024*1024, workers=16, run_label=No
     return result
 
 
-def _check_output_folders(root):
+def _check_output_folders(root, names=('raw', 'benchmark')):
     if not root or not str(root).strip():
         raise ValueError('root is required and must not be blank')
     root = Path(root)
-    for folder in (root / 'raw', root / 'benchmark'):
+    for folder in (root / name for name in names):
         if folder.is_symlink() or (folder.exists() and
                                   (not folder.is_dir() or any(folder.iterdir()))):
             raise FileExistsError(f'Output folder must be empty or absent: {folder}')
     return root
 
 
-def prepare_benchmark(zip_path, root='data/', copies=9, workers=16):
-    """Extract a ZIP and create renamed copies; never overwrite existing outputs."""
-    started = time.monotonic()
-    if copies < 1 or workers < 1:
-        raise ValueError('copies and workers must be positive integers')
-    root = _check_output_folders(root)
-    raw = root / 'raw'
-    benchmark = root / 'benchmark'
+def extract_raw(zip_path, root):
+    """Validate every ZIP member, extract into root/raw/ and return the sorted source MP4s."""
+    raw = Path(root) / 'raw'
     with zipfile.ZipFile(zip_path) as archive:
         seen = set()
         for member in archive.infolist():
@@ -191,12 +186,40 @@ def prepare_benchmark(zip_path, root='data/', copies=9, workers=16):
             seen.add(normalized)
         raw.mkdir(parents=True, exist_ok=True)
         archive.extractall(raw)
-    extraction_seconds = time.monotonic() - started
     sources = sorted((path for path in raw.rglob('*')
                       if path.is_file() and path.suffix.lower() == '.mp4'),
                      key=lambda path: path.relative_to(raw).as_posix())
     if not sources:
         raise ValueError('The ZIP contains no MP4 files')
+    return sources
+
+
+def download_and_extract(root, workers=16, url=URL, run_label=None):
+    """Download the ZIP and extract it to root/raw/ only: no benchmark/ copies.
+
+    Only raw/ must be empty or absent, so a benchmark/ folder left by an earlier run does not block it.
+    """
+    started = time.monotonic()
+    root = _check_output_folders(root, names=('raw',))
+    download = run(volume_root=root, url=url, workers=workers, run_label=run_label)
+    sources = extract_raw(download['output_path'], root)
+    elapsed = time.monotonic() - started
+    print(f'Extracted {len(sources)} MP4 files to {root / "raw"}. '
+          f'Elapsed including download: {elapsed:.2f} seconds.', flush=True)
+    return {'download': download, 'raw_path': str(root / 'raw'), 'source_count': len(sources),
+            'total_elapsed_seconds': elapsed}
+
+
+def prepare_benchmark(zip_path, root='data/', copies=9, workers=16):
+    """Extract a ZIP and create renamed copies; never overwrite existing outputs."""
+    started = time.monotonic()
+    if copies < 1 or workers < 1:
+        raise ValueError('copies and workers must be positive integers')
+    root = _check_output_folders(root)
+    raw = root / 'raw'
+    benchmark = root / 'benchmark'
+    sources = extract_raw(zip_path, root)
+    extraction_seconds = time.monotonic() - started
     file_count = len(sources) * copies
     if file_count > 999999:
         raise ValueError('Requested copies exceed the six-digit event ID capacity')

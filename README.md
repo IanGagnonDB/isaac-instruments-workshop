@@ -65,8 +65,9 @@ stored in Git. `00_setup` gets source clips in one of two ways:
 
 * `source_clips_path` set: copies the MP4s under that folder, for example an existing D2-City `raw/`
   folder in another volume. The folder must be readable from the deploying workspace.
-* `source_clips_path` empty: downloads the D2-City ZIP once into `<volume>/d2_city/` with
-  `video_cls/d2_city.py`, then reuses it.
+* `source_clips_path` empty: downloads the D2-City ZIP once and extracts it to `<volume>/d2_city/raw/`
+  with `video_cls/d2_city.py` (no other copies). If `raw/` already holds MP4s, setup reuses them and
+  downloads nothing. A `d2_city/benchmark/` folder from an older version is unused and can be deleted.
 
 The sources are replicated to `n_clips` clip_ids (default 1,000) under `clips/` as plain byte copies,
 with no re-encoding. Each clip gets a synthetic event JSON with a 2 Hz `speed_kmh` trace: about 35% full
