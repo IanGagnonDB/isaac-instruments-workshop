@@ -190,6 +190,7 @@ Then delete the volume contents if you no longer need them. Revoke the Hugging F
 
 | Symptom | Fix |
 |---|---|
+| `401 ... Invalid user token` or `401 ... Please log in` | The token in the secret scope was revoked or regenerated. Store the current token again with `put-secret` (section 2). |
 | `GatedRepoError: 403 ... not in the authorized list` | SAM3 access not granted yet, or the dataset terms not accepted, or a fine-grained token without the gated-repos permission. See 1.1. |
 | Deploy fails: endpoint `databricks-...` does not exist | Set `fmapi_model` / `luna_model` to models your workspace has. |
 | `deploy_endpoint` fails on the workload type | Use `GPU_SMALL` or `GPU_LARGE` on Azure. |
