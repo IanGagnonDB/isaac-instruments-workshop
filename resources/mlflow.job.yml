@@ -3,7 +3,7 @@
 resources:
   jobs:
     video_cls_mlflow_optional:
-      name: video-cls-mlflow-optional
+      name: 03-video-cls-mlflow-optional
       max_concurrent_runs: 1
       performance_target: PERFORMANCE_OPTIMIZED      # fast serverless start-up rather than lowest cost
       parameters:

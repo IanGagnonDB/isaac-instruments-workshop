@@ -105,15 +105,17 @@ come from the runtime.
    Optionally also set `source_clips_path`, `n_clips` or the node types.
 3. With `databricks.yml` open, click the **Deployments** icon. Choose the
    **dev** target and click **Deploy**. Review the validation summary and confirm.
-4. In **Bundle resources**, run the jobs in order with the ▶ icon:
-   1. `video-cls-setup`: setup → export_models → single_node_bench (one classic single-node cluster,
-      ~20 min)
-   2. `video-cls-benchmark`: 2 / 4 / 8 workers + 4 workers with `spark.task.cpus=2`, four classic
-      clusters in parallel (~16 min)
-   3. `video-cls-scoring`: score_events → report (serverless, ~1 min)
-   4. *(optional)* `video-cls-finetune-optional`: needs labelled frames, which D2-City doesn't have
-   5. *(optional)* `video-cls-mlflow-optional`: logs the benchmark results as an MLflow experiment
-      (serverless, ~3 min). See [Optional: the benchmark in MLflow](#optional-the-benchmark-in-mlflow)
+4. In **Bundle resources**, run the jobs in the order of their number prefix with the ▶ icon:
+   * `00-video-cls-setup`: setup → export_models → single_node_bench (one classic single-node cluster,
+     ~20 min)
+   * `01-video-cls-benchmark`: 2 / 4 / 8 workers + 4 workers with `spark.task.cpus=2`, four classic
+     clusters in parallel (~16 min)
+   * `02-video-cls-scoring`: score_events → report (serverless, ~1 min)
+   * *(optional)* `03-video-cls-mlflow-optional`: logs the benchmark results as an MLflow experiment
+     (serverless, ~3 min). See [Optional: the benchmark in MLflow](#optional-the-benchmark-in-mlflow)
+   * *(optional)* `04-video-cls-finetune-optional`: needs labelled frames, which D2-City doesn't have
+
+   In a `dev` deployment the names get a `[dev <you>]` prefix, so they still sort in this order.
 5. To change job parameters for one run (for example `max_clips` or `sign_class`), open the job from
    **Bundle resources** and choose **Run now with different parameters**.
 
@@ -171,7 +173,7 @@ classic cluster if serverless rejects it.
 
 ## Optional: the benchmark in MLflow
 
-`07_mlflow_experiment_optional` (job `video-cls-mlflow-optional`) turns the benchmark tables into an MLflow
+`07_mlflow_experiment_optional` (job `03-video-cls-mlflow-optional`) turns the benchmark tables into an MLflow
 experiment, `/Users/<you>/isaac-video-classification` by default (`experiment_path` parameter). It is off
 the critical path and re-measures nothing.
 

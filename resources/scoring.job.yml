@@ -4,7 +4,7 @@
 resources:
   jobs:
     video_cls_scoring:
-      name: video-cls-scoring
+      name: 02-video-cls-scoring
       max_concurrent_runs: 1
       performance_target: PERFORMANCE_OPTIMIZED      # fast serverless start-up rather than lowest cost
       parameters:

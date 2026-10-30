@@ -3,7 +3,7 @@
 resources:
   jobs:
     video_cls_setup:
-      name: video-cls-setup
+      name: 00-video-cls-setup
       max_concurrent_runs: 1
       parameters:
         - {name: catalog, default: "${var.catalog}"}
