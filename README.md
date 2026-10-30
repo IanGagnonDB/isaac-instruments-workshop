@@ -93,6 +93,8 @@ come from the runtime.
 
 ## Deploy and run
 
+This branch is the **CLI fallback**: deploy with the Databricks CLI, which builds the `video_cls` wheel
+with `uv`. To deploy from a workspace Git folder without the CLI, use the `main` branch instead.
 ```bash
 databricks bundle validate -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
 databricks bundle deploy   -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
@@ -105,6 +107,8 @@ databricks bundle run video_cls_benchmark -t dev --var catalog=my_catalog --var 
 databricks bundle run video_cls_scoring   -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
 # optional, needs labelled frames (not available for D2-City): fine-tune, then rerun 3 with sign_source=finetuned
 databricks bundle run video_cls_finetune_optional -t dev ... --params export_unlabeled=300
+# optional: log the benchmark tables as an MLflow experiment
+databricks bundle run video_cls_mlflow_optional   -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
 ```
 
 Use `-t prod` for a non-development deployment. Job parameters can be overridden per run with
@@ -119,6 +123,7 @@ Use `-t prod` for a non-development deployment. Job parameters can be overridden
 | `04_score_events` | serverless | Sign visible (`sign_class` proxy or fine-tuned) + min speed within `window_s` → severity | `event_scores` |
 | `05_finetune_optional` | classic, 1 node | Frozen ResNet-18, new 2-class head from `labels/yes`, `labels/no`; ONNX + int8 export. Not runnable on D2-City (no labels) | `models/stopsign_resnet18*` |
 | `06_report` | serverless | ms/frame per backend; frames/s vs cores with a linear-scaling line; extract vs inference share; conclusion | — |
+| `07_mlflow_experiment_optional` | serverless | Logs `bench_single_node`, `model_exports` and `bench_cluster` as MLflow runs; measures nothing | MLflow experiment |
 
 `03_cluster_bench` job parameters: `runs` (comma list of `model:variant`, variant ∈ `torch`, `fp32`,
 `int8`), `max_clips` (default 400; `0` = all), `n_partitions` (`0` = 3 × task slots), `batch_size` (Arrow
@@ -133,6 +138,23 @@ those predictions cover (the first `max_clips` clips). Without benchmark predict
 `sign_source=finetuned`, it classifies frames itself with a UDF that loads the model from `/Volumes`.
 That is guaranteed on dedicated classic clusters but not verified on serverless, so run the notebook on a
 classic cluster if serverless rejects it.
+
+## Optional: the benchmark in MLflow
+
+`07_mlflow_experiment_optional` (job `video-cls-mlflow-optional`) turns the benchmark tables into an MLflow
+experiment, `/Users/<you>/isaac-video-classification` by default (`experiment_path` parameter). It is off
+the critical path and re-measures nothing.
+
+* Two parent runs, `single_node benchmark` and `cluster benchmark`, each with a summary chart and one nested
+  child run per measured configuration: 18 single-node runs (model × backend × batch size) and 24 cluster
+  runs (cluster × model × backend) in the reference run.
+* Child runs carry the configuration as **parameters** (model, variant, backend, batch size, threads,
+  workers, cores, partitions) and the results as **metrics** (ms/frame, frames/s, extract and inference
+  seconds, int8 top-1 agreement, model size).
+* To demo: open the experiment, expand a parent run, select its children and click **Compare**. Sort by
+  `frames_per_s`, or chart `inference_frames_per_s` against `total_cores` with one line per variant.
+* It only needs the setup job's tables; the cluster runs are added once the benchmark job has run.
+  Rerunning is safe: a benchmark run that is already logged (same newest `run_ts`) is skipped.
 
 ## Point it at your own clips
 
@@ -224,6 +246,8 @@ uv run pytest                # the PySpark tests need Java 17 (JAVA_HOME)
 including seek accuracy. Other tests cover the speed traces and replication, ONNX export and int8
 quantization, the UDF contract, the scoring SQL bands and window, the parallel-safe table helpers, and
 (with PySpark) the full `mapInPandas` → pandas UDF pipeline for both backends.
+`test_tracking.py` logs sample benchmark tables to a temporary local MLflow store and checks the runs,
+metrics, charts and the skip on rerun.
 
 ## Licences
 

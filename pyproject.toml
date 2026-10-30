@@ -21,6 +21,8 @@ dev = [
   "torch==2.9.0",
   "torchvision==0.24.0",
   "pyspark==4.1.0",
+  "mlflow-skinny==3.17.2",
+  "matplotlib==3.10.0",
 ]
 
 [build-system]
