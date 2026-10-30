@@ -1,0 +1,47 @@
+bundle:
+  name: isaac-video-classification
+
+include:
+  - resources/*.yml
+
+artifacts:
+  video_cls:
+    type: whl
+    build: uv build --wheel
+    path: .
+
+variables:
+  catalog:
+    description: Existing Unity Catalog catalog (required; the bundle never creates catalogs).
+  schema:
+    description: Schema for tables and the volume. Created by 00_setup if missing.
+  volume:
+    description: Volume holding clips/, json/, models/ and labels/.
+    default: video
+  source_clips_path:
+    description: >-
+      Folder of source MP4s to replicate (e.g. an existing D2-City raw/ folder). Leave empty to
+      download D2-City into /Volumes/<catalog>/<schema>/<volume>/d2_city.
+    default: ""
+  n_clips:
+    description: Number of clip_ids to create by replicating the source clips.
+    default: "2000"
+  node_type_id:
+    description: Worker node type. Compute-optimized, 8 to 16 vCPUs. Check quota in your region.
+    default: Standard_F16s_v2
+  driver_node_type_id:
+    description: Small driver for multi-node clusters, and the node for scoring/report.
+    default: Standard_F8s_v2
+  spark_version:
+    description: Latest LTS ML CPU runtime. Verified with `databricks clusters spark-versions`.
+    default: 18.x-cpu-ml-scala2.13
+
+targets:
+  dev:
+    mode: development
+    default: true
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}

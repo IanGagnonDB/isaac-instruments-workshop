@@ -10,3 +10,10 @@ __pycache__/
 .env
 .DS_Store
 /.isaac/
+
+# Bundle and build outputs
+.databricks/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
