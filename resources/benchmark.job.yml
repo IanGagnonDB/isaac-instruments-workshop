@@ -9,7 +9,7 @@
 resources:
   jobs:
     video_cls_benchmark:
-      name: video-cls-benchmark
+      name: 01-video-cls-benchmark
       max_concurrent_runs: 1
       parameters:
         - {name: catalog, default: "${var.catalog}"}

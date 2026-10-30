@@ -2,7 +2,7 @@
 resources:
   jobs:
     video_cls_finetune_optional:
-      name: video-cls-finetune-optional
+      name: 04-video-cls-finetune-optional
       max_concurrent_runs: 1
       parameters:
         - {name: catalog, default: "${var.catalog}"}

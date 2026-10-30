@@ -95,21 +95,25 @@ come from the runtime.
 
 This branch is the **CLI fallback**: deploy with the Databricks CLI, which builds the `video_cls` wheel
 with `uv`. To deploy from a workspace Git folder without the CLI, use the `main` branch instead.
+
 ```bash
 databricks bundle validate -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
 databricks bundle deploy   -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
 
-# 1. setup -> export_models -> single_node_bench      (one classic single-node cluster)
+# 00-video-cls-setup: setup -> export_models -> single_node_bench   (one classic single-node cluster)
 databricks bundle run video_cls_setup     -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
-# 2. 2 / 4 / 8 workers + 4 workers with spark.task.cpus=2, four classic clusters in parallel
+# 01-video-cls-benchmark: 2 / 4 / 8 workers + 4 workers with spark.task.cpus=2, four classic clusters in parallel
 databricks bundle run video_cls_benchmark -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
-# 3. score_events -> report                            (serverless)
+# 02-video-cls-scoring: score_events -> report                       (serverless)
 databricks bundle run video_cls_scoring   -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
-# optional, needs labelled frames (not available for D2-City): fine-tune, then rerun 3 with sign_source=finetuned
-databricks bundle run video_cls_finetune_optional -t dev ... --params export_unlabeled=300
-# optional: log the benchmark tables as an MLflow experiment
+# 03-video-cls-mlflow-optional: log the benchmark tables as an MLflow experiment (serverless)
 databricks bundle run video_cls_mlflow_optional   -t dev --var catalog=my_catalog --var schema=video_demo -p <profile>
+# 04-video-cls-finetune-optional: needs labelled frames (not available for D2-City), then rerun 02 with sign_source=finetuned
+databricks bundle run video_cls_finetune_optional -t dev ... --params export_unlabeled=300
 ```
+
+In the workspace the jobs are named with these number prefixes (plus `[dev <you>]` in a `dev`
+deployment), so they sort in run order.
 
 Use `-t prod` for a non-development deployment. Job parameters can be overridden per run with
 `--params`, for example `--params runs=resnet18:int8,resnet50:int8,max_clips=800`.
@@ -141,7 +145,7 @@ classic cluster if serverless rejects it.
 
 ## Optional: the benchmark in MLflow
 
-`07_mlflow_experiment_optional` (job `video-cls-mlflow-optional`) turns the benchmark tables into an MLflow
+`07_mlflow_experiment_optional` (job `03-video-cls-mlflow-optional`) turns the benchmark tables into an MLflow
 experiment, `/Users/<you>/isaac-video-classification` by default (`experiment_path` parameter). It is off
 the critical path and re-measures nothing.
 

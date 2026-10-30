@@ -48,7 +48,7 @@ p = {name: dbutils.widgets.get(name) for name, _ in PARAMS}
 catalog, schema = p["catalog"], p["schema"]
 events_table = f"{catalog}.{schema}.events"
 if not spark.catalog.tableExists(events_table):
-    raise RuntimeError(f"{events_table} does not exist. Run the setup job (video-cls-setup) for schema "
+    raise RuntimeError(f"{events_table} does not exist. Run the setup job (00-video-cls-setup) for schema "
                        f"'{schema}' first; then the benchmark job, so scoring can reuse its predictions.")
 models_dir = f"/Volumes/{catalog}/{schema}/{p['volume']}/models"
 if p["sign_source"] not in ("proxy", "finetuned"):
