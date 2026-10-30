@@ -16,3 +16,4 @@ node_modules/
 
 # Databricks Asset Bundle state and local variable overrides
 .databricks/
+tsconfig.tsbuildinfo

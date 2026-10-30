@@ -50,6 +50,8 @@ AUTO_SEGMENT_VOLUME_PATH = os.getenv(
 INPUTS_DIR = f"{AUTO_SEGMENT_VOLUME_PATH}/inputs"
 OUTPUTS_DIR = f"{AUTO_SEGMENT_VOLUME_PATH}/outputs"
 DESCRIPTIONS_DIR = f"{AUTO_SEGMENT_VOLUME_PATH}/descriptions"
+EVENTS_DIR = f"{AUTO_SEGMENT_VOLUME_PATH}/events"
+REVIEWS_DIR = f"{AUTO_SEGMENT_VOLUME_PATH}/reviews"
 STATIC_DIR = Path(__file__).parent / "static"
 
 VIDEO_EXTENSIONS = {
@@ -76,6 +78,10 @@ TRANSCRIPT_ENDPOINT_ENV = {
 }
 T = TypeVar("T")
 LIVE_SEGMENT_LOCK = asyncio.Lock()
+EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+SEVERITY_LEVELS = ("none", "low", "medium", "high", "critical")
+MAX_REVIEW_NOTES = 2_000
+MAX_LISTED_EVENTS = 200
 CLIENT_EVENT_PATTERN = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 CLIENT_FIELD_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
@@ -761,6 +767,157 @@ async def output_media(request: Request) -> StreamingResponse:
     )
 
 
+def safe_event_id(event_id: str) -> str:
+    if not EVENT_ID_PATTERN.fullmatch(event_id or ""):
+        raise HTTPException(400, "A valid event ID is required.")
+    return event_id
+
+
+def reviewer_identity(request: Request) -> str:
+    # Databricks Apps forwards the signed-in user's identity on every request.
+    for header in ("x-forwarded-email", "x-forwarded-preferred-username", "x-forwarded-user"):
+        if value := request.headers.get(header, "").strip():
+            return value[:254]
+    return "unknown"
+
+
+async def read_json(path: str) -> dict[str, Any] | None:
+    text = await download_text(path)
+    if text is None:
+        return None
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+async def list_reviews(event_id: str) -> list[dict[str, Any]]:
+    try:
+        items = await call_sdk(list_directory, f"{REVIEWS_DIR}/{event_id}")
+    except NotFound:
+        return []
+    names = sorted(
+        entry.name
+        for entry in items
+        if entry.name and not entry.is_directory and entry.name.endswith(".json")
+    )
+    reviews = [await read_json(f"{REVIEWS_DIR}/{event_id}/{name}") for name in names]
+    return [review for review in reviews if review]
+
+
+def event_summary(event: dict[str, Any], latest_review: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "event_id": event.get("event_id"),
+        "event_type": event.get("event_type"),
+        "event_label": event.get("event_label"),
+        "clip": event.get("clip"),
+        "vehicle_id": event.get("vehicle_id"),
+        "recorded_at": event.get("recorded_at"),
+        "edge_severity": event.get("edge_severity"),
+        "review_status": "reviewed" if latest_review else "pending",
+        "reviewed_severity": latest_review.get("severity") if latest_review else None,
+    }
+
+
+async def event_list(_: Request) -> JSONResponse:
+    try:
+        items = await call_sdk(list_directory, EVENTS_DIR)
+    except NotFound:
+        return JSONResponse({"items": [], "root": EVENTS_DIR})
+    names = sorted(
+        entry.name
+        for entry in items
+        if entry.name and not entry.is_directory and entry.name.endswith(".json")
+    )[:MAX_LISTED_EVENTS]
+    summaries = []
+    for name in names:
+        event = await read_json(f"{EVENTS_DIR}/{name}")
+        if not event or not event.get("event_id"):
+            continue
+        reviews = await list_reviews(safe_event_id(str(event["event_id"])))
+        summaries.append(event_summary(event, reviews[-1] if reviews else None))
+    summaries.sort(key=lambda item: str(item.get("recorded_at") or ""), reverse=True)
+    return JSONResponse({"items": summaries, "root": EVENTS_DIR})
+
+
+async def event_detail(request: Request) -> JSONResponse:
+    event_id = safe_event_id(request.path_params["event_id"])
+    event = await read_json(f"{EVENTS_DIR}/{event_id}.json")
+    if not event:
+        raise HTTPException(404, "The event was not found.")
+    clip = safe_video_name(str(event.get("clip", "")))
+    has_output = await metadata_exists(rooted_path(OUTPUTS_DIR, clip))
+    return JSONResponse(
+        {
+            "event": event,
+            "clip_url": f"/api/source-media/{quote(clip)}",
+            "output_url": f"/api/media/{quote(clip)}" if has_output else None,
+            "reviews": await list_reviews(event_id),
+        }
+    )
+
+
+async def submit_review(request: Request) -> JSONResponse:
+    event_id = safe_event_id(request.path_params["event_id"])
+    if not await metadata_exists(f"{EVENTS_DIR}/{event_id}.json"):
+        raise HTTPException(404, "The event was not found.")
+    try:
+        payload = await request.json()
+    except Exception as error:
+        raise HTTPException(400, "Request body must contain valid JSON.") from error
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Request body must be a JSON object.")
+
+    severity = str(payload.get("severity", "")).strip().lower()
+    if severity not in SEVERITY_LEVELS:
+        raise HTTPException(400, f"Severity must be one of: {', '.join(SEVERITY_LEVELS)}.")
+    edge_correct = payload.get("edge_classification_correct")
+    if not isinstance(edge_correct, bool):
+        raise HTTPException(400, "Say whether the edge classification was correct.")
+    notes = str(payload.get("notes", "")).strip()
+    if len(notes) > MAX_REVIEW_NOTES:
+        raise HTTPException(400, f"Notes must be {MAX_REVIEW_NOTES:,} characters or fewer.")
+    prompt = str(payload.get("sam3_prompt", "")).strip()[:200] or None
+
+    submitted = now_utc()
+    review = {
+        "event_id": event_id,
+        "severity": severity,
+        "edge_classification_correct": edge_correct,
+        "notes": notes,
+        "sam3_prompt": prompt,
+        "reviewer": reviewer_identity(request),
+        "submitted_at": submitted.isoformat().replace("+00:00", "Z"),
+    }
+    # One immutable file per submission keeps a full review history.
+    destination = f"{REVIEWS_DIR}/{event_id}/{submitted.strftime('%Y%m%dT%H%M%S%fZ')}.json"
+    await call_sdk(upload_text, json.dumps(review, indent=2), destination)
+    return JSONResponse(review, status_code=201)
+
+
+async def source_media(request: Request) -> StreamingResponse:
+    filename = safe_video_name(request.path_params["filename"])
+    path = rooted_path(INPUTS_DIR, filename)
+    try:
+        contents, content_length = await call_sdk(open_volume_download, path)
+    except NotFound as error:
+        raise HTTPException(404, "The source video was not found.") from error
+
+    headers = {
+        "Cache-Control": "no-store",
+        "Content-Disposition": f'inline; filename="{filename}"',
+    }
+    if content_length:
+        headers["Content-Length"] = str(content_length)
+    media_type, _ = mimetypes.guess_type(filename)
+    return StreamingResponse(
+        stream_and_close(contents),
+        media_type=media_type or "application/octet-stream",
+        headers=headers,
+    )
+
+
 async def spa(request: Request) -> Response:
     path = request.path_params.get("path", "")
     if path.startswith("api/"):
@@ -852,6 +1009,10 @@ routes = [
     Route("/api/runs", create_run, methods=["POST"]),
     WebSocketRoute("/api/segment-stream", stream_run),
     Route("/api/media/{filename:path}", output_media),
+    Route("/api/source-media/{filename:path}", source_media),
+    Route("/api/events", event_list),
+    Route("/api/events/{event_id}", event_detail),
+    Route("/api/events/{event_id}/reviews", submit_review, methods=["POST"]),
     Mount("/assets", StaticFiles(directory=STATIC_DIR / "assets", check_dir=False)),
     Route("/{path:path}", spa),
 ]

@@ -312,3 +312,94 @@ export function streamRun(
 export function getOutput(filename: string): Promise<OutputDetail> {
   return apiFetch(`/api/outputs/${encodeURIComponent(filename)}`)
 }
+
+export type Severity = 'none' | 'low' | 'medium' | 'high' | 'critical'
+
+export interface EdgeDetection {
+  label: string
+  confidence: number
+  first_seen_s: number
+  last_seen_s: number
+}
+
+export interface EdgeEvent {
+  event_id: string
+  simulated?: boolean
+  source_note?: string
+  clip: string
+  device_id?: string
+  vehicle_id?: string
+  driver_id?: string
+  recorded_at?: string
+  location?: { lat: number; lon: number } | null
+  event_type: string
+  event_label?: string
+  trigger?: { time_s: number; clip_duration_s?: number }
+  edge_detections?: EdgeDetection[]
+  edge_severity?: Severity
+  telemetry?: {
+    speed_kmh?: { t_s: number; speed_kmh: number }[]
+    [key: string]: unknown
+  }
+  suggested_prompts?: string[]
+  nexar_label?: {
+    collision_or_near_miss: boolean | null
+    time_of_event_s: number | null
+    scene?: string | null
+    weather?: string | null
+    light_conditions?: string | null
+  }
+}
+
+export interface EventSummary {
+  event_id: string
+  event_type: string
+  event_label?: string
+  clip: string
+  vehicle_id?: string
+  recorded_at?: string
+  edge_severity?: Severity
+  review_status: 'pending' | 'reviewed'
+  reviewed_severity: Severity | null
+}
+
+export interface EventReview {
+  event_id: string
+  severity: Severity
+  edge_classification_correct: boolean
+  notes: string
+  sam3_prompt: string | null
+  reviewer: string
+  submitted_at: string
+}
+
+export interface EventDetail {
+  event: EdgeEvent
+  clip_url: string
+  output_url: string | null
+  reviews: EventReview[]
+}
+
+export function listEvents(): Promise<{ items: EventSummary[]; root: string }> {
+  return apiFetch('/api/events')
+}
+
+export function getEvent(eventId: string): Promise<EventDetail> {
+  return apiFetch(`/api/events/${encodeURIComponent(eventId)}`)
+}
+
+export function submitReview(
+  eventId: string,
+  review: {
+    severity: Severity
+    edge_classification_correct: boolean
+    notes: string
+    sam3_prompt?: string
+  },
+): Promise<EventReview> {
+  return apiFetch(`/api/events/${encodeURIComponent(eventId)}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(review),
+  })
+}

@@ -317,3 +317,92 @@ async def test_browser_telemetry_is_validated_and_logged(client, caplog):
     )
     assert event["trace_id"] == "browser-run-456"
     assert event["client_fields"]["duration_ms"] == 1234
+
+
+SAMPLE_EVENT = {
+    "event_id": "EVT-0001",
+    "event_type": "stop_sign_violation",
+    "event_label": "Rolling stop at stop sign",
+    "clip": "nexar_negative_01041.mp4",
+    "vehicle_id": "TRK-0412",
+    "recorded_at": "2026-10-21T14:32:08Z",
+    "edge_severity": "medium",
+}
+
+
+def test_event_ids_reject_paths():
+    assert app_module.safe_event_id("EVT-0001") == "EVT-0001"
+    for invalid in ("", "../x", "a/b", "x" * 65, "-leading"):
+        with pytest.raises(HTTPException):
+            app_module.safe_event_id(invalid)
+
+
+@pytest.mark.anyio
+async def test_event_list_marks_pending_and_reviewed(client, monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "call_sdk",
+        AsyncMock(return_value=[SimpleNamespace(name="EVT-0001.json", is_directory=False)]),
+    )
+    monkeypatch.setattr(app_module, "read_json", AsyncMock(return_value=SAMPLE_EVENT))
+    monkeypatch.setattr(
+        app_module,
+        "list_reviews",
+        AsyncMock(return_value=[{"severity": "high"}]),
+    )
+
+    response = await client.get("/api/events")
+
+    assert response.status_code == 200
+    [item] = response.json()["items"]
+    assert item["event_id"] == "EVT-0001"
+    assert item["review_status"] == "reviewed"
+    assert item["reviewed_severity"] == "high"
+
+
+@pytest.mark.anyio
+async def test_event_detail_links_source_and_segmented_clip(client, fake_client, monkeypatch):
+    monkeypatch.setattr(app_module, "read_json", AsyncMock(return_value=SAMPLE_EVENT))
+    monkeypatch.setattr(app_module, "list_reviews", AsyncMock(return_value=[]))
+
+    response = await client.get("/api/events/EVT-0001")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["clip_url"] == "/api/source-media/nexar_negative_01041.mp4"
+    assert body["output_url"] == "/api/media/nexar_negative_01041.mp4"
+    assert body["reviews"] == []
+
+
+@pytest.mark.anyio
+async def test_review_is_written_with_the_signed_in_reviewer(client, fake_client):
+    response = await client.post(
+        "/api/events/EVT-0001/reviews",
+        headers={"X-Forwarded-Email": "reviewer@example.com"},
+        json={
+            "severity": "High",
+            "edge_classification_correct": True,
+            "notes": "Did not stop.",
+            "sam3_prompt": "stop sign",
+        },
+    )
+
+    assert response.status_code == 201
+    review = response.json()
+    assert review["severity"] == "high"
+    assert review["reviewer"] == "reviewer@example.com"
+    text, destination = app_module.upload_text.call_args.args
+    assert destination.startswith(f"{app_module.REVIEWS_DIR}/EVT-0001/")
+    assert json.loads(text)["notes"] == "Did not stop."
+
+
+@pytest.mark.anyio
+async def test_review_rejects_unknown_severity(client, fake_client):
+    response = await client.post(
+        "/api/events/EVT-0001/reviews",
+        json={"severity": "extreme", "edge_classification_correct": True},
+    )
+
+    assert response.status_code == 400
+    assert "Severity must be one of" in response.json()["error"]["message"]
+    app_module.upload_text.assert_not_called()

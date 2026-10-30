@@ -121,6 +121,15 @@ resources:
               secret_scope: ${var.secret_scope}
               secret_key: ${var.secret_key}
             source: WORKSPACE
+        - task_key: generate_sample_events
+          depends_on:
+            - task_key: fetch_sample_clips
+          environment_key: samples
+          notebook_task:
+            notebook_path: ./notebooks/generate_sample_events.py
+            base_parameters:
+              volume_root: ${var.volume_path}
+            source: WORKSPACE
       environments:
         - environment_key: default
           spec:
@@ -221,3 +230,9 @@ targets:
   dev:
     default: true
     mode: development
+  preview:
+    # A second, parallel deployment for trying app changes without touching dev.
+    # It reuses the SAM3 endpoint and volume but has its own app and jobs.
+    mode: development
+    variables:
+      app_name: sam3-video-review

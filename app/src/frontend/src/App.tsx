@@ -28,6 +28,7 @@ import {
   type VideoFile,
   uploadInput,
 } from './api'
+import { EventReviewPage } from './EventReview'
 import {
   initialWorkflowState,
   workflowReducer,
@@ -120,7 +121,7 @@ function PresentationStage({ children }: { children: ReactNode }) {
   )
 }
 
-type ExperienceSection = 'demo' | 'architecture' | 'characteristics'
+type ExperienceSection = 'demo' | 'review' | 'architecture' | 'characteristics'
 
 function Icon({
   children,
@@ -518,6 +519,16 @@ function App() {
     }
   }
 
+  function analyzeEventClip(clip: string, eventPrompt: string) {
+    dispatch({ type: 'reset' })
+    setSourceMode('volume')
+    chooseSource(clip)
+    setPrompt(eventPrompt)
+    setTruncate(false)
+    setExperienceSection('demo')
+    setMobileView('setup')
+  }
+
   function reset() {
     dispatch({ type: 'reset' })
     setSourceQuery('')
@@ -608,7 +619,9 @@ function App() {
   const sectionHeading =
     experienceSection === 'demo'
       ? ['Governed video analysis', 'Find objects in video']
-      : experienceSection === 'architecture'
+      : experienceSection === 'review'
+        ? ['Edge events', 'Grade event severity']
+        : experienceSection === 'architecture'
         ? ['Solution blueprint', 'Architecture']
         : ['Platform story', 'Key characteristics']
 
@@ -658,6 +671,7 @@ function App() {
             {(
               [
                 ['demo', 'Live Demo'],
+                ['review', 'Event Review'],
                 ['architecture', 'Architecture'],
                 ['characteristics', 'Key Characteristics'],
               ] as const
@@ -687,7 +701,9 @@ function App() {
             </section>
           }
         >
-          {experienceSection === 'architecture' ? (
+          {experienceSection === 'review' ? (
+            <EventReviewPage onAnalyze={analyzeEventClip} />
+          ) : experienceSection === 'architecture' ? (
             <PresentationStage>
               <ArchitecturePage />
             </PresentationStage>

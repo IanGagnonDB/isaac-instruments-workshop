@@ -50,6 +50,14 @@ Path(license_dir).mkdir(parents=True, exist_ok=True)
 for name in ["LICENSE", "README.md"]:
     shutil.copy(hf_hub_download(repo, name, repo_type="dataset", token=token), f"{license_dir}/{name}")
 
+# Nexar's per-clip labels (event and alert times for collision or near-miss clips).
+for label in ("positive", "negative"):
+    source = f"train/{label}/metadata.csv"
+    shutil.copy(
+        hf_hub_download(repo, source, repo_type="dataset", token=token),
+        f"{license_dir}/train_{label}_metadata.csv",
+    )
+
 for path in selected:
     local = hf_hub_download(repo, path, repo_type="dataset", token=token)
     label = path.split("/")[1]
