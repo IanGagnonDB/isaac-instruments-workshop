@@ -9,7 +9,7 @@ CPU only, on Azure Databricks (built and run in Canada Central). Setup and bench
 clusters. Scoring and the report run on serverless. Everything environment-specific is a bundle
 variable.
 
-> **Branch `low-vcpu`: for a ~20-vCPU quota and a required compute policy.** Differences from `main`:
+> **Branch `low-vcpu`: for a ~20-vCPU quota.** Differences from `main`:
 >
 > * **Setup on serverless.** `00-video-cls-setup` (data only) needs no cluster and no vCPU quota. Model
 >   export and the single-node benchmark moved to the start of the benchmark job, on its cluster.
@@ -18,9 +18,8 @@ variable.
 > * **One benchmark cluster, core sweep.** `01-video-cls-benchmark` runs export → single-node benchmark →
 >   the pipeline at 4, 8 and 16 concurrent tasks (`task_caps`) on one cluster. That scales cores, not
 >   machines, with a single cluster start-up.
-> * **Compute policy on every classic job cluster.** Set the policy **ID** in `databricks.yml`
->   (`policy_id`; **Compute → Policies** → open the policy). Clusters set `apply_policy_default_values: true`
->   and on-demand VMs. A wrong ID fails only the deploy, with an error naming the policy.
+> * **No compute policy, on-demand VMs.** The job clusters are created without a policy (see
+>   Prerequisites) and ask for on-demand VMs, so spot pre-emption cannot distort the timings.
 > * **No single-node clusters.** Fine-tune runs on a driver + 1 worker, because policies such as
 >   *Job Compute* forbid `spark.databricks.cluster.profile`. The notebook still does its work on the driver.
 >
@@ -83,11 +82,12 @@ stops, 40% rolling stops at 5–15 km/h, and 25% with no real slowdown. The benc
 * An existing **catalog** you can `USE` and `CREATE SCHEMA` in, or an existing schema with `CREATE TABLE`
   and `CREATE VOLUME`.
 * **vCPU quota: 20 Fsv2 vCPUs** with the defaults: the benchmark cluster is (`bench_workers` + 1) × 4.
-  Run the jobs one at a time; setup (8 vCPUs) and the benchmark (20) never need to overlap. Azure
-  quotas are per VM family *and* per region, so check both.
-* **A compute policy** your job clusters may use. It must allow dedicated (single user) access mode,
-  `runtime_engine: STANDARD`, the node types and on-demand VMs. Ask your admin if the deploy or a
-  cluster start is rejected by the policy.
+  Setup runs on serverless, so the benchmark is the only cluster that needs the quota (fine-tune, if
+  used, needs 8). Azure quotas are per VM family *and* per region, so check both.
+* **Permission to create job clusters without a compute policy** (unrestricted cluster creation). If your
+  workspace only allows policy-based clusters, add `policy_id: <your policy ID>` under `new_cluster:` in
+  `resources/benchmark.job.yml` and `resources/finetune.job.yml`, and make sure that policy allows
+  dedicated (single user) access mode, `runtime_engine: STANDARD`, the node types and on-demand VMs.
 * Egress to `download.pytorch.org`, or to `huggingface.co` as the automatic fallback, for model weights.
   For the D2-City download only: egress to `download.scidb.cn`.
 
@@ -107,7 +107,6 @@ Set them in the `variables:` section of [`databricks.yml`](databricks.yml). From
 | `volume` | `video` | Created by `00_setup` if missing |
 | `source_clips_path` | empty | Folder of source MP4s. Empty = download D2-City |
 | `n_clips` | `1000` | clip_ids created by replication |
-| `policy_id` | `CHANGE_ME_POLICY_ID` | **Edit before deploying:** compute policy ID (Compute → Policies → open the policy). Attached to every classic job cluster |
 | `node_type_id` | `Standard_F4s_v2` | Workers, and the setup driver (single-node benchmark node) |
 | `driver_node_type_id` | `Standard_F4s_v2` | Driver of the benchmark cluster |
 | `bench_workers` | `4` | Benchmark workers; peak vCPUs = (`bench_workers` + 1) × 4 |
@@ -124,9 +123,8 @@ come from the runtime.
 ## Deploy and run from a Git folder (no CLI)
 
 1. **Workspace → Create → Git folder**, and paste this repository's URL.
-2. In the Git folder, open **`databricks.yml`** and set `catalog` and `schema` under `variables:`, and the
-   compute policy **ID** under `policy_id`. Optionally also set `source_clips_path`, `n_clips` or the node
-   types.
+2. In the Git folder, open **`databricks.yml`** and set `catalog` and `schema` under `variables:`.
+   Optionally also set `source_clips_path`, `n_clips` or the node types.
 3. With `databricks.yml` open, click the **Deployments** icon. Choose the
    **dev** target and click **Deploy**. Review the validation summary and confirm.
 4. In **Bundle resources**, run the jobs in the order of their number prefix with the ▶ icon:

@@ -16,13 +16,6 @@ variables:
   schema:
     description: Schema for tables and the volume. Created by 00_setup if missing.
     default: CHANGE_ME_SCHEMA
-  # EDIT THIS TOO: the ID of the compute policy your job clusters must use (Compute > Policies >
-  # open the policy; the ID is on the policy page and in its URL). It is attached to every classic
-  # job cluster (benchmark, fine-tune). An ID rather than a name lookup: a wrong value then fails
-  # only the deploy, with a message, instead of the whole bundle ("failed to resolve").
-  policy_id:
-    description: ID of the compute policy attached to every classic job cluster.
-    default: CHANGE_ME_POLICY_ID
 
   volume:
     description: Volume holding clips/, json/, models/ and labels/.

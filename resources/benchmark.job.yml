@@ -4,8 +4,7 @@
 #   2. single_node_bench  02: PyTorch vs ONNX vs int8 on the driver, same node type as the workers
 #   3. bench_sweep        03: core sweep at 4, 8, 16 concurrent tasks (throughput vs cores)
 # Each pass reads its own max_clips clips; rows are labelled sweep_cap<k> with total_cores = k.
-# The cluster uses the compute policy from databricks.yml (policy_id) and on-demand VMs, since
-# spot pre-emption mid-run would distort the timings.
+# The cluster uses on-demand VMs, since spot pre-emption mid-run would distort the timings.
 resources:
   jobs:
     video_cls_benchmark:
@@ -30,8 +29,6 @@ resources:
             node_type_id: ${var.node_type_id}
             driver_node_type_id: ${var.driver_node_type_id}
             num_workers: ${var.bench_workers}
-            policy_id: ${var.policy_id}
-            apply_policy_default_values: true
             azure_attributes:
               availability: ON_DEMAND_AZURE
             data_security_mode: SINGLE_USER           # dedicated: /Volumes paths work in UDFs

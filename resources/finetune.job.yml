@@ -18,8 +18,6 @@ resources:
             node_type_id: ${var.node_type_id}
             driver_node_type_id: ${var.node_type_id}
             num_workers: 1
-            policy_id: ${var.policy_id}
-            apply_policy_default_values: true
             azure_attributes:
               availability: ON_DEMAND_AZURE
             data_security_mode: SINGLE_USER
