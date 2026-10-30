@@ -1,20 +1,53 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 04 · Run the champion and inspect success and failure
-# MAGIC Resolve `champion` **once**, load its numeric version, and write that exact version beside every prediction.
-# MAGIC This is batch inference. No serving endpoint, training or app is created.
-# MAGIC
-# MAGIC Use `mlflow==3.17.2` (UC trace storage requires >=3.11.1), plus the environment from 01.
-# MAGIC Set `trace_schema` to an explicitly selected existing `catalog.schema`, or arrange creation of a new schema
-# MAGIC before running. The destination and SQL warehouse are explicitly selected
-# MAGIC in workshop_config.json; no personal workspace defaults are used. Provisioning needs USE CATALOG/SCHEMA, CREATE TABLE and warehouse
-# MAGIC usage rights. Traces are stored in governed UC Delta tables; there is no silent storage fallback.
-# MAGIC UC trace location binding is permanent for an experiment. A separate trace experiment isolates this choice.
+# MAGIC # 04 · Run the champion and inspect traces
+# MAGIC Resolve the exact champion version, score events and trace one success and one deliberate failure.
+# MAGIC Select **Serverless → ML base environment → version 6**. Then **Run All**.
+# MAGIC The install cell adds notebook dependencies; the ML base supplies Torch, torchvision, transformers,
+# MAGIC NumPy and pandas. The next cell restarts Python before imports. No manual dependency-panel editing.
 
 # COMMAND ----------
-# MAGIC %run ./01_classify_video $library_only="true"
+# MAGIC %pip install "opencv-python-headless==4.11.0.86" "mlflow==3.17.2"
 
 # COMMAND ----------
+dbutils.library.restartPython()
+
+# COMMAND ----------
+# MAGIC %run ./00_configuration
+
+# COMMAND ----------
+from utils import inference as inf
+from utils.session import create_session
+
+ctx = create_session(WORKSHOP)
+print(f'Dataset: {ctx.dataset}; output: {ctx.output}')
+
+import os
+import json
+import time
+import importlib.metadata
+from pathlib import Path
+import cv2
+import numpy as np
+import pandas as pd
+import torch
+from transformers import AutoImageProcessor
+from utils.inference import (load_engine, sampled_frames, read_manifest, run_events, warm_engine,
+                             versions, write_json, save_predictions, REVISIONS)
+
+ROOT, OUTPUT, DEVICE = ctx.root, ctx.output, 'cpu'
+BATCH_SIZE, LIMIT, SAMPLING = ctx.batch_size, WORKSHOP['event_limit'], ctx.sampling
+EXPERIMENT, MODEL_PREFIX = WORKSHOP['experiment'], WORKSHOP['model_prefix']
+RUN_ID = Path(ctx.output).name
+
+
+def parameter(name, default):
+    try:
+        return dbutils.widgets.get(name)
+    except Exception:
+        dbutils.widgets.text(name, str(default))
+        return str(default)
+
 from contextlib import contextmanager
 from packaging.version import Version
 import mlflow
@@ -38,6 +71,8 @@ workspace = WorkspaceClient()
 workspace.current_user.me()  # Verify current workspace credentials before exporting traces.
 workspace.schemas.get(TRACE_SCHEMA)  # Verify the selected schema exists; do not create an arbitrary replacement.
 warehouse_id = WORKSHOP['trace_warehouse_id']
+if not warehouse_id:
+    raise ValueError('Notebook 04 needs TRACE_WAREHOUSE_ID in 00_configuration. Select a SQL warehouse with CAN USE access.')
 workspace.warehouses.get(warehouse_id)
 os.environ['MLFLOW_TRACING_SQL_WAREHOUSE_ID'] = warehouse_id
 existing = mlflow.get_experiment_by_name(TRACE_EXPERIMENT)
@@ -53,7 +88,7 @@ assert isinstance(mlflow.get_experiment(experiment.experiment_id).trace_location
 print(f'Trace storage: {TRACE_SCHEMA}; experiment {experiment.experiment_id}; warehouse {warehouse_id}')
 
 # COMMAND ----------
-name = MODEL_PREFIX + '_resnet50'
+name = MODEL_PREFIX + '_' + ctx.model_id.split('/')[-1].replace('-', '')
 selected = client.get_model_version_by_alias(name, 'champion')
 resolved_version = str(selected.version)
 model_uri = f'models:/{name}/{resolved_version}'
@@ -85,13 +120,13 @@ display(pd.DataFrame([result['stages']]))
 # MAGIC MP4s, decoded images and tensors remain outside trace payloads. Some spans repeat for frame batches.
 # MAGIC A deliberately missing file produces an ERROR trace; its expected exception is caught **outside** the root span.
 # MAGIC No cross-worker trace propagation is assumed. This demonstration runs in this notebook process only.
-# MAGIC Traces explain execution paths; trace durations are not precise GPU compute measurements.
+# MAGIC Traces explain execution paths; trace durations are not precise isolated compute measurements.
 
 # COMMAND ----------
 def trace_event(event):
     context = {'event_id': event['event_id'], 'instance_id': event['instance_id'],
                'batch_size': BATCH_SIZE, 'registered_model': name, 'model_version': resolved_version,
-               'revision': provenance['revision']}
+               'revision': provenance['revision'], 'dataset_kind': WORKSHOP['dataset']}
     @contextmanager
     def stage_span(stage_name):
         started = time.perf_counter()
@@ -137,7 +172,7 @@ print(f'Success trace ID: {success_trace_id}\nFailure trace ID: {failure_trace_i
 write_json(f'{OUTPUT}/04_trace_ids.json', {'success': success_trace_id, 'failure': failure_trace_id,
                                          'experiment_id': experiment.experiment_id, 'trace_schema': TRACE_SCHEMA,
                                          'model_name': name, 'model_version': resolved_version,
-                                         'start_time_ms': trace_start_ms})
+                                         'dataset': ctx.dataset, 'start_time_ms': trace_start_ms})
 
 # COMMAND ----------
 # MAGIC %md
@@ -179,15 +214,3 @@ for label, trace_id in [('success', success_trace_id), ('failure', failure_trace
     url = f'{workspace.config.host.rstrip("/")}/ml/experiments/{experiment.experiment_id}/traces/{trace_id.rsplit("/", 1)[-1]}'
     displayHTML(f'<a href="{url}" target="_blank">Open verified {label} trace</a>')
 print(f'Predictions, resolved model version and trace IDs saved in {OUTPUT}')
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC Preparation evidence: the champion-loading and scoring cell was validated separately on Azure Serverless CPU,
-# MAGIC resolving ResNet-50 version 1 and persisting predictions for 2 events / 20 frames. Local MLflow readback
-# MAGIC verified a successful trace with 20 spans and a failed-input trace with 2 spans.
-# MAGIC Azure UC trace export and readback also passed in `iangagnon_azure_one_env.isaac_workshop`, using champion
-# MAGIC version 1. The successful Azure trace contains 18 spans with the default batch size 8; the deliberate failure
-# MAGIC was verified as ERROR. Saved IDs: `/Volumes/iangagnon_azure_one_env/isaac_workshop/videos/workshop_outputs/eb8f7b68995d/04_trace_ids.json`.
-# MAGIC [Verified success trace](https://adb-7405609708766806.6.azuredatabricks.net/ml/experiments/3449939268991008/traces/05ce7939a8f8b11d00629fbeef0e55c0)
-# MAGIC · [Verified deliberate failure](https://adb-7405609708766806.6.azuredatabricks.net/ml/experiments/3449939268991008/traces/6bd3cb1ac617b7c42f6bd12148cb839d).
-# MAGIC GPU trace execution remains unvalidated because this workspace has no eligible GPU region.

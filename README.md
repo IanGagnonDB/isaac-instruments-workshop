@@ -1,69 +1,60 @@
-# ISAAC Instruments Workshop
+# ISAAC Instruments video workshop
 
-A one-day proof of concept for running a video frame classification pipeline on Databricks and benchmarking throughput and cost.
+CPU video classification on **Databricks Serverless ML v6**: classify a video, benchmark three UDFs, register a model, and inspect successful and failed traces. No training or app deployment.
 
-## Start in a new workspace — Git Folder
+## Start here
 
-No DAB, CLI, or local Python installation is required. Two participants share one Git Folder and one dataset; each signs in with their own Databricks identity.
+1. Clone this repository as a **Databricks Git Folder**. Give both participants access; use separate signed-in identities. Keep the same Git revision during the session.
+2. Open [00_configuration](notebooks/00_configuration.py) and enter **VOLUME_ROOT**, an existing Unity Catalog Volume path. Real D2-City data is selected by default. The other settings have small CPU defaults.
+3. In each exercise notebook select **Serverless → ML base environment → version 6**. Run from the top: the visible `%pip` cell installs extras, then Python restarts before imports. No requirements file or manual dependency-panel editing.
+4. If data/model files are missing, one designated participant opens [optional_prepare_dataset](notebooks/optional_prepare_dataset.py), selects **Download D2-City**, and runs it. Complete datasets and staged models are reused; the second person does not download them again.
+5. Run **01 → 02 → 03 → 04**. Notebook 04 additionally needs **TRACE_WAREHOUSE_ID**, selected in 00_configuration; the first three exercises do not require a SQL warehouse.
 
-1. One person creates a **Git Folder** from this repository and grants the second participant access. If the repository is private, the person cloning needs Git provider credentials. Both participants need workspace permission to run notebooks.
-2. Choose or create an existing Unity Catalog catalog, schema and Volume, plus a SQL warehouse. In the repository root, edit **`workshop_config.json`** once with those resource names and the warehouse ID. The Volume path is derived automatically. Do not put credentials in the file.
-3. Open [00_setup_and_preflight](notebooks/00_setup_and_preflight.py). Follow its environment instructions in each notebook 00–04. The CPU starter uses Python 3.12 / Serverless environment version 4 and [requirements-cpu.txt](requirements-cpu.txt). Allow time for dependency installation. GPU needs a separately compatible environment; keep its runtime-provided Torch/torchvision.
-4. Both participants run the initial checks. Designate **one participant** to set `prepare_dataset=true` and/or `prepare_models=true` in notebook 00 if those shared assets are missing. Rerun notebook 00 after changing widgets. Preparation is optional when validated assets already exist; data and model files themselves are required. Reset widgets to `false` afterward.
-5. Both participants finish the one-event smoke test, then open **01 → 02 → 03 → 04**. Keep the shared config and Git revision unchanged while either person is running.
+| Notebook | What you do |
+|---|---|
+| [00 · Configuration](notebooks/00_configuration.py) | Enter one shared Volume location and choose the dataset |
+| [Optional · Prepare data](notebooks/optional_prepare_dataset.py) | Stage real data and weights once; run a one-frame smoke test |
+| [01 · Classify a video](notebooks/01_classify_video.py) | Decode, sample and classify frames; save traceable predictions |
+| [02 · Benchmark UDFs](notebooks/02_benchmark_udfs.py) | Compare Python, scalar pandas and iterator pandas UDFs |
+| [03 · Model lifecycle](notebooks/03_model_lifecycle.py) | Register versions; promote and roll back `champion` |
+| [04 · Run and trace](notebooks/04_run_and_trace_champion.py) | Run the exact champion version; trace success and failure |
 
-The starter scores only **two events** and creates **one benchmark instance per source video**. The dataset source is still a full ZIP download; download time and size are not reduced by the scoring limit. Increase the workload only after the smoke test works.
+Setup and inference plumbing lives in `utils/`. Participants do not need to edit those files. Each `.py` file under `notebooks/` is a Databricks source notebook.
 
-Shared: videos, manifest and pinned model snapshots. Isolated automatically by signed-in identity: experiment paths, registered model prefixes and output folders. Each execution also gets a unique output run ID. Use separate identities; two sessions of the same identity share model aliases. Re-running 03 intentionally adds model versions.
+## Real data first, explicit fallback
 
-Resource access needed by both participants: USE CATALOG, USE SCHEMA, READ/WRITE VOLUME, CREATE MODEL, CREATE TABLE, and CAN USE on the selected SQL warehouse. Participants own the models they create and need permission to create experiments under their own user folders. Setup checks resource visibility and actual Volume read/write; notebooks 03/04 exercise registration, alias changes and trace provisioning/readback. Administrators must resolve missing grants.
+D2-City videos remain the default. Preparation downloads the full source archive and creates one benchmark instance per source video. The scoring limit reduces the inference workload, not the initial download. No third-party videos are redistributed in Git.
 
-**Compute gate:** Serverless CPU offers Sequential/Spark diagnostics, lifecycle and tracing, but not the complete matched Sequential/Ray/Spark benchmark. For that comparison use compatible classic single-node compute and pass notebook 02's probes. GPU availability is workspace/region dependent; selecting `device=cuda` asserts GPU access and fails clearly if unavailable. The earlier workspace's limitations are historical evidence, not a prediction for your new workspace.
+A failed real-data download **stops and explains the error**. It never switches datasets automatically. If you explicitly want to continue with generated videos:
 
-The `classic_single_node` and `ray_on_spark` modes also require a compatible Ray installation. Use a DBR ML runtime that includes it or install Ray on the cluster; it is intentionally absent from the Serverless CPU starter requirements. Notebook 00 checks for it in those modes.
+1. Set **DATASET = 'synthetic'** in 00_configuration.
+2. In optional_prepare_dataset select **Use synthetic fallback**, then rerun it.
+3. Continue through 01–04. All events/results identify the dataset as synthetic.
 
-Use the [facilitator runbook](docs/facilitator-runbook.md) for fresh-workspace validation and recovery. Deployment automation with DABs can be added later; the workshop entry point is the Git Folder.
+The fallback generates three short MP4s containing moving shapes, gradients and frame numbers. It verifies pipeline mechanics; ImageNet predictions on those images have no semantic meaning. Generated videos go to a separate folder and never replace real footage. Model weights still require Hugging Face access if they are not already staged.
 
-## Workshop scope
+```text
+<Volume>/
+  datasets/d2_city/       # raw/, benchmark/manifest.csv, dataset.json
+  datasets/synthetic/     # separate fallback, same data contract
+  workshop_models/       # pinned checkpoints, shared by both people
+  workshop_outputs/      # participant / unique execution ID
+```
 
-Use synthetic MP4 clips and public pretrained image classification models to stand in for ISAAC’s proprietary models and scripts. The intended pipeline is:
+## CPU environment and benchmark
 
-1. Ingest event archives containing MP4 video and JSON metadata into a Unity Catalog Volume and events table.
-2. Extract frames with OpenCV using event-aware sampling (roughly 10 frames per 30-second clip; some event types may need only one).
-3. Classify sampled frames in batches with PyTorch on Databricks Serverless GPU compute.
-4. Track models with MLflow and compare inference throughput with full pipeline throughput.
-5. Report events per minute, latency, and cost per event where compute cost can be attributed.
+Use the [Serverless v6 ML base environment](https://docs.databricks.com/aws/en/release-notes/serverless/environment-version/six), which supplies the CPU ML stack, including Torch, torchvision and transformers. Every executable exercise visibly installs `opencv-python-headless==4.11.0.86`; lifecycle/tracing exercises additionally install `mlflow==3.17.2` for their model and trace APIs. The workshop does not pin or reinstall the base Torch, NumPy or pandas stack. Runtime package versions are saved with results.
 
-**Target compute:** Databricks Serverless GPU. This supersedes the CPU-only assumption in the initial workshop meeting notes. GPU access, supported dependencies, and the exact execution configuration still need validation in the workshop workspace.
+The primary CPU starter is **microsoft/resnet-18**, pinned to checkpoint revision `65a5785d9156231087c481e0c7dd33a5ff6f7e3e`. For an optional architecture comparison, choose **microsoft/resnet-50**, revision `34c2154c194f829b11125337b98c8f5f9965ff19`, prepare its weights, then rerun. Model cards list Apache 2.0. Both models classify ImageNet objects, not driving-event severity.
 
-## Selected models
+Notebook 02 compares ordinary Python UDFs, scalar pandas UDFs and iterator pandas UDFs using shared decoding/preprocessing/inference. A driver-side sequential run is the correctness reference. Before comparing throughput, all UDFs must produce the same event/frame coverage and top-1 predictions with confidence differences <=1e-4.
 
-Both models are pretrained CNNs for ImageNet-1k image classification. Their Hugging Face model cards list Apache 2.0 licensing.
+Defaults are four events, three sampled frames per event, and small inference batches. The synthetic dataset has only three events. These defaults validate functionality; increase the workload for useful throughput measurements. First-use rounds and repeated rounds are reported separately, with model-load times, output-write completion, variation and dataset provenance. Serverless resource allocation/cache state is not fixed; results are observed performance, not guaranteed speedups. Arrow batch size is managed by the platform; tune Torch inference batch size separately.
 
-| Role | Hugging Face model | Approximate parameters | Purpose |
-| --- | --- | --- | --- |
-| Primary | [microsoft/resnet-50](https://huggingface.co/microsoft/resnet-50) | 25.6 million | Main GPU batching and throughput benchmark |
-| Lightweight baseline | [microsoft/resnet-18](https://huggingface.co/microsoft/resnet-18) | 11.7 million | Compare model compute cost within the same pipeline |
+## Access and troubleshooting
 
-These models predict ImageNet object classes, not driving-event severity. They are substitutes for exercising the pipeline. Any severity scores shown in the workshop must be explicitly labeled as synthetic.
+Both participants need USE CATALOG, USE SCHEMA and READ/WRITE VOLUME. Notebook 03 also needs CREATE MODEL, experiment creation/access and ownership of participant models for alias changes. Notebook 04 needs CREATE TABLE in the trace schema and CAN USE on its SQL warehouse. Create/select those resources with an administrator when necessary; the workshop does not create arbitrary infrastructure or grant permissions.
 
-### Model staging
+Models, experiments and output paths are derived from signed-in identity. On compute that shares a notebook execution session, take turns running cells; separate usernames alone do not isolate a shared Python process. Use independent notebook sessions for concurrent hands-on work, and change shared configuration only when both participants have stopped. Model alias changes are shared by sessions of the same identity; re-running 03 intentionally creates versions.
 
-Use the optional model preparation cell in notebook 00. It downloads the exact checkpoint revisions used by the workshop into the shared Volume; notebooks 01–04 only load staged files. Weights stay outside Git.
-
-## Benchmark approach
-
-- Use the same videos, sampling rules, and preprocessing for both models.
-- Batch frames from multiple clips and load the model once per inference worker.
-- Measure several batch sizes and record GPU configuration and concurrency.
-- Separate video decoding and preprocessing time from model inference time, then measure the full pipeline.
-- Include warm-up and report steady-state performance separately from startup overhead.
-- Compare available compute configurations after validating what Serverless GPU supports in the target workspace.
-
-A small model may leave the GPU underused if decoding, data movement, or scheduling dominates. GPU speedups and scaling are benchmark results to measure, not assumptions.
-
-## Documentation
-
-See the [agreed workshop plan](docs/workshop-plan.md) for the four notebook scenarios, acceptance criteria, ownership, tracing demonstration, and optional extensions. Training and fine-tuning are outside the workshop scope.
-
-This README is the entry point for workshop scope, model choices, and current assumptions. Environment setup and fresh-workspace instructions are above; recovery guidance is in the facilitator runbook.
+See the [facilitator runbook](docs/facilitator-runbook.md) for recovery and a fresh-workspace checklist, and [workshop plan](docs/workshop-plan.md) for scope. Local checks do not establish live ML v6/Spark/Unity Catalog compatibility: validate the complete flow in the customer workspace.

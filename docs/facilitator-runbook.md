@@ -1,33 +1,43 @@
-# Fresh-workspace facilitator runbook
+# Facilitator runbook
 
-Start at README.md and notebook 00. Reserve workshop time for Git credentials, dependency installation, grants, data/model downloads and compute startup. No workspace configuration has been assumed complete in advance.
+## Fresh workspace checklist
 
-## Acceptance checklist
+- Clone the Git Folder, grant access and select independent execution sessions for concurrent hands-on use. If working in one shared Python session, take turns running cells.
+- Create/select a UC Volume and grant both participants USE CATALOG/SCHEMA and READ/WRITE VOLUME. Set VOLUME_ROOT in 00_configuration; leave DATASET as d2_city.
+- Select Serverless, ML base environment, version 6 in the exercise/preparation notebooks. Run from the first cell; the notebook installs extras and restarts Python before importing helpers.
+- The designated preparer selects Download D2-City in optional_prepare_dataset. Validate the shared dataset, stage the selected model, and pass one-frame inference. The full source ZIP is downloaded; scoring limits do not shrink it.
+- The second participant chooses Reuse existing data and confirms the same data/models are reused. Check distinct participant IDs and model prefixes in independent sessions.
+- Run 01 and inspect event/frame identity, model revision, dataset labels and saved output.
+- Run 02; all three UDF correctness probes must pass. Inspect first-use and repeated timings, worker model-load times and chart variation. Start small, then increase events for throughput testing.
+- Run 03 with CREATE MODEL and experiment access. Verify promotion and rollback; each identity owns separate models.
+- Before 04, select a SQL warehouse, set TRACE_WAREHOUSE_ID in 00_configuration and grant CAN USE plus CREATE TABLE in the trace schema. Verify success and ERROR traces, readback and viewer links.
+- Re-run preparation and confirm reuse. Re-run 01 and confirm a new execution output folder. Re-run 03 and confirm additional versions are intentional.
 
-- Clone the repository once as a shared Git Folder. Confirm the other participant can open and run notebooks with their own identity.
-- Set workshop_config.json to accessible resources in the new workspace; select CPU or compatible GPU compute explicitly.
-- Configure dependencies for each notebook and participant session. Use requirements-cpu.txt for the CPU starter; do not replace GPU runtime Torch with CPU dependencies.
-- Run 00 with preparation widgets false: check resource access and see missing data reported without starting a download.
-- The designated preparer enables dataset/model preparation as needed and reruns 00. Confirm smoke inference succeeds. Reset preparation widgets to false.
-- The second participant runs 00 with preparation disabled and reuses the same data/models. Compare displayed model prefixes and participant IDs: they must differ.
-- Run 01–04 from each identity. Verify distinct output folders and model names, promotion/rollback, and successful/failed trace readback. SQL warehouse startup may add latency.
-- In 02 inspect compatibility.json and output coverage before interpreting charts. Serverless CPU is a partial path; a skipped Ray path is not a successful three-way benchmark.
-- Rerun 00 with preparation enabled: a complete dataset is reused. Rerun 01: output goes to a fresh run directory. Rerun 03: new model versions are intentional.
+## Explicit fallback drill
+
+1. When real preparation fails, confirm the exception includes the underlying error and fallback instructions. It must not create or select synthetic data.
+2. Set DATASET='synthetic' in 00_configuration while both participants are stopped.
+3. Choose Use synthetic fallback in optional_prepare_dataset and rerun from the top.
+4. Confirm three generated MP4s decode, predictions run and every output identifies synthetic data. Inspect both dataset folders to confirm real files were untouched.
+5. Explain that generated shapes validate mechanics only. Model staging still requires network access if checkpoints are missing.
+6. To return to real footage, select DATASET='d2_city' and reuse/prepare that dataset explicitly. Synthetic files can remain in their separate folder.
 
 ## Recovery
 
-**Missing grants or resources:** create/select the resources with an authorized workspace administrator, grant both participants access, then rerun the failed step. The setup notebook does not create arbitrary catalogs, schemas, compute or permissions.
+**Dependencies:** ensure ML v6, not Standard, is selected. Run the visible pip cell, restart cell and subsequent cells in order. Do not reinstall the old Torch/NumPy/pandas pins. If the overlay conflicts with the selected environment, retain the error and validate package compatibility before changing versions; versions are recorded with results.
 
-**Incomplete dataset:** preparation refuses to overwrite populated raw/benchmark directories. Inspect the reported problem or select a fresh Volume in the shared config. Do not delete data while either participant is using it. Validation checks manifest structure, unique IDs, path safety and nonempty referenced files; the smoke test checks decoding of one event, not every video.
+**Missing data/model:** open optional_prepare_dataset. Reuse never starts video downloads. Real preparation uses one copy per source video; use a separate larger dataset root if later experimenting with duplication. Model preparation reuses complete local snapshots and can resume missing downloads.
 
-**Preparation interrupted:** confirm the designated preparer's command/session has stopped. Inspect partial outputs. Only then manually remove a stale .dataset-preparation.lock or .model-preparation.lock directory from the Volume. These directory locks discourage overlapping setup but are not distributed transactions; always designate one preparer. The model downloader can resume missing downloads; partial datasets require inspection or a fresh location.
+**Old workshop data:** the new real-data location is <Volume>/datasets/d2_city/. Old root-level raw/ and benchmark/ are not moved automatically. Copy a complete, validated old dataset into the new real-data location if you want to reuse it, then choose Download D2-City: existing complete data is reused and labeled, not downloaded again. Do not copy synthetic data into that folder.
 
-**External download unavailable:** notebook 00 needs network access to the dataset source and Hugging Face when assets are missing. Place the required data/model layout into the chosen Volume through an available route, or resolve outbound access. Scoring notebooks do not initiate downloads.
+**Incomplete dataset:** preparation never overwrites populated raw/benchmark directories. Inspect the error or choose a fresh Volume. Nothing is deleted automatically. Manifest validation checks columns, IDs, paths and nonempty source/benchmark files; the smoke test decodes one event, not every video.
 
-**Dependency/import errors:** confirm the selected environment and Python version, install the documented dependencies and restart the notebook's Python session. Both participants must select an environment in each notebook; settings in one notebook do not configure all the others. The setup smoke test imports the real inference dependencies and fails visibly on incompatible installations.
+**Interrupted preparation:** ensure the designated preparer's session has stopped before removing a stale lock. Dataset lock: <Volume>/datasets/<source>/.dataset-preparation.lock. Model lock: <Volume>/workshop_models/.preparation.lock. Directory locks depend on storage semantics and are not distributed transactions; designate one preparer regardless.
 
-**GPU/Ray unavailable:** choose an explicit compatible CPU path in workshop_config.json. Run the partial workshop and label unavailable comparisons. Full matched three-way results require compatible compute; do not present partial diagnostics as a matched benchmark.
+**UDF failure or memory pressure:** inspect the saved correctness error. Workers need access to staged Volume videos/checkpoints and the notebook dependencies. The worker receives helper definitions by value and does not download files. ResNet-18 and inference batches 1–2 are the conservative starting point; limit sampled frames and avoid large decoded images. A successful local run is not proof of live Serverless worker compatibility.
 
-**Trace failure:** verify trace schema, CREATE TABLE and SQL warehouse CAN USE access; start the selected warehouse if necessary. Notebook 04 uses a separate trace experiment. If an existing experiment is permanently bound to another trace location, select a new trace_experiment widget value in 04.
+**Slow benchmark:** a handful of events mostly measures scheduling/startup. Keep it for the functional check, then increase the event limit on real data. Worker replacement and dynamic resource allocation can change results. Record repeated rounds; do not claim guaranteed speedup or fixed hardware.
 
-**Config edits:** stop concurrent runs, edit together, then rerun notebooks from their first cell. Model identity and dataset root must remain consistent between 03 and 04. Notebook-specific benchmark widgets remain available in 02; shared paths/device settings come from workshop_config.json.
+**Trace failure:** confirm warehouse ID, CAN USE, CREATE TABLE and warehouse startup. Notebook 04 does not silently change storage destinations. If a trace experiment is permanently bound elsewhere, choose a new trace_experiment widget value in 04.
+
+**Configuration changes:** stop concurrent runs, edit 00_configuration together and rerun from the top. The dataset/model selection must be consistent between exercises; 04 resolves the selected architecture's registered model. Shared notebook state is not isolated solely by different usernames.

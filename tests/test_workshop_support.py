@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import workshop_support as support
+from utils import workshop_support as support
 
 
 class DatasetTests(unittest.TestCase):
@@ -43,7 +43,7 @@ class DatasetTests(unittest.TestCase):
                 support.prepare_shared_dataset(directory, prepare=fail)
             self.assertFalse((Path(directory) / '.dataset-preparation.lock').exists())
 
-    def test_reject_path_escape_and_duplicate_ids(self):
+    def test_reject_path_escape(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'benchmark').mkdir()
@@ -59,25 +59,18 @@ class ConfigTests(unittest.TestCase):
 
 class FreshWorkspaceTests(unittest.TestCase):
     def test_config_derives_shared_data_and_isolated_models(self):
-        import json
-        with tempfile.TemporaryDirectory() as directory:
-            config = {'catalog': 'demo', 'schema': 'workshop', 'volume': 'videos',
-                      'trace_warehouse_id': 'warehouse', 'device': 'cpu',
-                      'compute_mode': 'serverless_cpu', 'batch_size': 8, 'event_limit': 2}
-            (Path(directory) / 'workshop_config.json').write_text(json.dumps(config))
-            first = support.load_config(directory, 'first@example.com')
-            second = support.load_config(directory, 'second@example.com')
-            self.assertEqual(first['root'], '/Volumes/demo/workshop/videos')
-            self.assertEqual(first['root'], second['root'])
-            self.assertNotEqual(first['model_prefix'], second['model_prefix'])
-            self.assertNotEqual(first['experiment'], second['experiment'])
+        settings = {'volume_root': '/Volumes/demo/workshop/videos'}
+        first = support.build_config(settings, 'first@example.com')
+        second = support.build_config(settings, 'second@example.com')
+        self.assertEqual(first['root'], '/Volumes/demo/workshop/videos/datasets/d2_city')
+        self.assertEqual(first['root'], second['root'])
+        self.assertNotEqual(first['model_prefix'], second['model_prefix'])
+        self.assertNotEqual(first['experiment'], second['experiment'])
+        self.assertEqual(first['trace_warehouse_id'], '')
 
     def test_unconfigured_workspace_fails_with_edit_instruction(self):
-        import json
-        with tempfile.TemporaryDirectory() as directory:
-            (Path(directory) / 'workshop_config.json').write_text(json.dumps({'catalog': 'CHOOSE_CATALOG'}))
-            with self.assertRaisesRegex(ValueError, 'Edit workshop_config.json'):
-                support.load_config(directory, 'user@example.com')
+        with self.assertRaisesRegex(ValueError, '00_configuration'):
+            support.build_config({'volume_root': '/Volumes/CHOOSE/catalog/volume'}, 'user@example.com')
 
     def test_partial_data_never_calls_preparer(self):
         with tempfile.TemporaryDirectory() as directory:

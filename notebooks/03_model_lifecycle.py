@@ -1,19 +1,53 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 03 · Reproduce, promote and roll back a pretrained model
-# MAGIC Log the two pinned checkpoints as separate Unity Catalog registered models, with the same tensor contract:
-# MAGIC float32 `[N,3,224,224]` → float32 `[N,1000]` logits. The saved processor defines RGB/resize/crop/normalization.
-# MAGIC No training, evaluation dataset, fine-tuning or retraining job is created.
-# MAGIC
-# MAGIC The ResNet-50 alias exercise registers two versions of the **same checkpoint**, changes `champion`, verifies
-# MAGIC inference through the alias, then restores its previous target. This demonstrates mechanics, not improved
-# MAGIC accuracy. Architectures are registered separately; do not infer driving-severity accuracy from ImageNet outputs.
-# MAGIC `model_prefix` must name a workshop-owned catalog.schema.prefix. Re-running adds versions intentionally.
+# MAGIC # 03 · Register, promote and roll back
+# MAGIC Register two versions of the same pinned checkpoint and verify alias rollback. Re-running adds versions intentionally.
+# MAGIC Select **Serverless → ML base environment → version 6**. Then **Run All**.
+# MAGIC The install cell adds notebook dependencies; the ML base supplies Torch, torchvision, transformers,
+# MAGIC NumPy and pandas. The next cell restarts Python before imports. No manual dependency-panel editing.
 
 # COMMAND ----------
-# MAGIC %run ./01_classify_video $library_only="true"
+# MAGIC %pip install "opencv-python-headless==4.11.0.86" "mlflow==3.17.2"
 
 # COMMAND ----------
+dbutils.library.restartPython()
+
+# COMMAND ----------
+# MAGIC %run ./00_configuration
+
+# COMMAND ----------
+from utils import inference as inf
+from utils.session import create_session
+
+ctx = create_session(WORKSHOP)
+print(f'Dataset: {ctx.dataset}; output: {ctx.output}')
+
+import os
+import json
+import time
+import importlib.metadata
+from pathlib import Path
+import cv2
+import numpy as np
+import pandas as pd
+import torch
+from transformers import AutoImageProcessor
+from utils.inference import (load_engine, sampled_frames, read_manifest, run_events, warm_engine,
+                             versions, write_json, save_predictions, REVISIONS)
+
+ROOT, OUTPUT, DEVICE = ctx.root, ctx.output, 'cpu'
+BATCH_SIZE, LIMIT, SAMPLING = ctx.batch_size, WORKSHOP['event_limit'], ctx.sampling
+EXPERIMENT, MODEL_PREFIX = WORKSHOP['experiment'], WORKSHOP['model_prefix']
+RUN_ID = Path(ctx.output).name
+
+
+def parameter(name, default):
+    try:
+        return dbutils.widgets.get(name)
+    except Exception:
+        dbutils.widgets.text(name, str(default))
+        return str(default)
+
 import tempfile
 import mlflow
 import mlflow.pytorch
@@ -25,8 +59,8 @@ mlflow.set_tracking_uri('databricks')
 mlflow.set_registry_uri('databricks-uc')
 mlflow.set_experiment(EXPERIMENT)
 client = MlflowClient()
-checkpoints = prepare_checkpoints(ROOT)
-registered_names = {model_id: MODEL_PREFIX + '_' + model_id.split('/')[-1].replace('-', '') for model_id in REVISIONS}
+checkpoints = {ctx.model_id: ctx.model_path}
+registered_names = {model_id: MODEL_PREFIX + '_' + model_id.split('/')[-1].replace('-', '') for model_id in checkpoints}
 signature = ModelSignature(
     inputs=Schema([TensorSpec(np.dtype('float32'), (-1, 3, 224, 224))]),
     outputs=Schema([TensorSpec(np.dtype('float32'), (-1, 1000))]),
@@ -72,9 +106,9 @@ def register_checkpoint(model_id, role):
     with mlflow.start_run(run_name=f'{model_id.split("/")[-1]}-{role}-{RUN_ID}') as run:
         mlflow.log_params({'model_id': model_id, 'checkpoint_revision': REVISIONS[model_id],
                            'precision': 'fp32', 'role': role, 'training': False, 'load_seconds': load_seconds})
-        mlflow.set_tags({'workshop': 'isaac', 'task': 'imagenet_frame_classification', 'accuracy_claim': 'none'})
+        mlflow.set_tags({'workshop': 'isaac', 'dataset_kind': WORKSHOP['dataset'], 'task': 'imagenet_frame_classification', 'accuracy_claim': 'none'})
         mlflow.log_dict(runtime, 'dependencies.json')
-        mlflow.log_dict({'model_id': model_id, 'revision': REVISIONS[model_id], 'sampling': SAMPLING,
+        mlflow.log_dict({'model_id': model_id, 'revision': REVISIONS[model_id], 'sampling': SAMPLING, 'dataset': ctx.dataset,
                          'input_contract': 'float32 NCHW RGB, processor normalization',
                          'output_contract': 'float32 ImageNet-1k logits; not severity'}, 'provenance.json')
         with tempfile.TemporaryDirectory() as directory:
@@ -100,7 +134,7 @@ def register_checkpoint(model_id, role):
 # COMMAND ----------
 registered = {}
 original_aliases = {}
-for model_id in REVISIONS:
+for model_id in checkpoints:
     # Query an existing model first; a first-ever model registration has no alias yet.
     from mlflow.exceptions import MlflowException
     try:
@@ -114,7 +148,7 @@ for model_id in REVISIONS:
     if original_aliases[model_id] is None:
         client.set_registered_model_alias(registered_names[model_id], 'champion', registered[model_id]['version'])
 
-primary = 'microsoft/resnet-50'
+primary = ctx.model_id
 name = registered_names[primary]
 previous = champion_version(name)
 candidate = register_checkpoint(primary, 'illustrative_candidate_same_checkpoint')
@@ -136,9 +170,9 @@ if previous == registered[primary]['version']:
     np.testing.assert_allclose(restored_logits, registered[primary]['expected'], atol=1e-4, rtol=1e-4)
 summary = [{'model_id': model_id, 'registered_name': registered_names[model_id],
             'new_version': registered[model_id]['version'], 'champion': champion_version(registered_names[model_id]),
-            'revision': REVISIONS[model_id]} for model_id in REVISIONS]
+            'revision': REVISIONS[model_id]} for model_id in checkpoints]
 write_json(f'{OUTPUT}/03_registry.json', {'models': summary, 'candidate_version': candidate['version'],
-                                        'rollback_version': previous, 'dependencies': versions()})
+                                        'rollback_version': previous, 'dependencies': versions(), 'dataset': ctx.dataset})
 display(pd.DataFrame(summary))
 print(f'Alias promotion and rollback verified; evidence: {OUTPUT}/03_registry.json')
 
@@ -154,9 +188,3 @@ print(f'Alias promotion and rollback verified; evidence: {OUTPUT}/03_registry.js
 # MAGIC MLflow's ONNX flavor is another integration route for ISAAC's ONNX artifacts. It is a talk track only here:
 # MAGIC no ONNX export/runtime example has been validated, and no ONNX execution is claimed. Online serving and
 # MAGIC real-time enrichment are optional extensions outside this workshop.
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC Azure rehearsal on 2026-10-29 verified both registered architectures, packaged pyfunc predictions,
-# MAGIC ResNet-50 promotion from version 1 to 2, and rollback to version 1. Evidence was saved at
-# MAGIC `/Volumes/iangagnon_azure_one_env/isaac_workshop/videos/workshop_outputs/af37d32d9824/03_registry.json`.
