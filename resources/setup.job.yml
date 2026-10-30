@@ -1,58 +1,22 @@
-# Setup -> model export -> single-node benchmark, all on one small job cluster: driver + 1 worker,
-# both node_type_id (8 vCPUs with the defaults). A real single-node cluster would need
-# spark.databricks.cluster.profile, which compute policies such as "Job Compute" forbid.
-# The notebooks' work (copies, export, 02's timing) runs on the driver, which matches the benchmark
-# workers (node_type_id) so per-core numbers are comparable.
+# Setup on serverless: schema/volume, source clips, replication, synthetic JSON, events table.
+# No cluster start-up and no vCPU quota; 00 installs OpenCV itself. Model export and the
+# single-node benchmark need PyTorch and a fixed node type, so they run at the start of the
+# benchmark job, on its cluster (see benchmark.job.yml).
 resources:
   jobs:
     video_cls_setup:
       name: 00-video-cls-setup
       max_concurrent_runs: 1
+      performance_target: PERFORMANCE_OPTIMIZED      # fast serverless start-up rather than lowest cost
       parameters:
         - {name: catalog, default: "${var.catalog}"}
         - {name: schema, default: "${var.schema}"}
         - {name: volume, default: "${var.volume}"}
 
-      job_clusters:
-        - job_cluster_key: single_node
-          new_cluster:
-            spark_version: ${var.spark_version}
-            node_type_id: ${var.node_type_id}
-            driver_node_type_id: ${var.node_type_id}
-            num_workers: 1
-            policy_id: ${var.policy_id}
-            apply_policy_default_values: true
-            azure_attributes:
-              availability: ON_DEMAND_AZURE
-            data_security_mode: SINGLE_USER           # dedicated: /Volumes paths work in UDFs
-            single_user_name: ${workspace.current_user.userName}
-            runtime_engine: STANDARD                  # Photon off: no gain for Python UDFs
-            spark_conf:
-              spark.sql.execution.arrow.maxRecordsPerBatch: "64"
-
       tasks:
         - task_key: setup
-          job_cluster_key: single_node
           notebook_task:
             notebook_path: ../notebooks/00_setup.py
             base_parameters:
               source_clips_path: ${var.source_clips_path}
               n_clips: ${var.n_clips}
-          libraries: &libraries
-            - pypi: {package: onnx==1.21.0}
-            - pypi: {package: onnxruntime==1.31.0}
-            - pypi: {package: opencv-python-headless==4.11.0.86}
-
-        - task_key: export_models
-          depends_on: [{task_key: setup}]
-          job_cluster_key: single_node
-          notebook_task:
-            notebook_path: ../notebooks/01_export_models.py
-          libraries: *libraries
-
-        - task_key: single_node_bench
-          depends_on: [{task_key: export_models}]
-          job_cluster_key: single_node
-          notebook_task:
-            notebook_path: ../notebooks/02_single_node_bench.py
-          libraries: *libraries

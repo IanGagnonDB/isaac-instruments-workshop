@@ -11,17 +11,18 @@ variable.
 
 > **Branch `low-vcpu`: for a ~20-vCPU quota and a required compute policy.** Differences from `main`:
 >
-> * **4-vCPU nodes** (`Standard_F4s_v2`) everywhere. The largest cluster is the benchmark at **20 vCPUs**
->   (driver + 4 workers); setup and fine-tune use 8. Scoring and MLflow run on serverless, which does not
->   use your Azure vCPU quota.
-> * **One benchmark cluster, core sweep.** Instead of one cluster per size, `01-video-cls-benchmark` runs
->   the pipeline on one cluster at 4, 8 and 16 concurrent tasks (`task_caps`). That scales cores, not
+> * **Setup on serverless.** `00-video-cls-setup` (data only) needs no cluster and no vCPU quota. Model
+>   export and the single-node benchmark moved to the start of the benchmark job, on its cluster.
+> * **4-vCPU nodes** (`Standard_F4s_v2`). The benchmark cluster is **20 vCPUs** (driver + 4 workers);
+>   fine-tune uses 8. Setup, scoring and MLflow run on serverless, which does not use your Azure quota.
+> * **One benchmark cluster, core sweep.** `01-video-cls-benchmark` runs export → single-node benchmark →
+>   the pipeline at 4, 8 and 16 concurrent tasks (`task_caps`) on one cluster. That scales cores, not
 >   machines, with a single cluster start-up.
-> * **Compute policy on every classic job cluster.** Set the policy *name* in `databricks.yml`
->   (`policy_id` → `lookup: cluster_policy:`); the bundle looks up its ID at deploy time. Clusters set
->   `apply_policy_default_values: true` and on-demand VMs.
-> * **No single-node clusters.** Setup and fine-tune run on a driver + 1 worker, because policies such as
->   *Job Compute* forbid `spark.databricks.cluster.profile`. The notebooks still do that work on the driver.
+> * **Compute policy on every classic job cluster.** Set the policy **ID** in `databricks.yml`
+>   (`policy_id`; **Compute → Policies** → open the policy). Clusters set `apply_policy_default_values: true`
+>   and on-demand VMs. A wrong ID fails only the deploy, with an error naming the policy.
+> * **No single-node clusters.** Fine-tune runs on a driver + 1 worker, because policies such as
+>   *Job Compute* forbid `spark.databricks.cluster.profile`. The notebook still does its work on the driver.
 >
 > The reference numbers further down were measured with `main`'s 16-vCPU configuration.
 
@@ -106,7 +107,7 @@ Set them in the `variables:` section of [`databricks.yml`](databricks.yml). From
 | `volume` | `video` | Created by `00_setup` if missing |
 | `source_clips_path` | empty | Folder of source MP4s. Empty = download D2-City |
 | `n_clips` | `1000` | clip_ids created by replication |
-| `policy_id` | lookup of policy **`Job Compute`** | **Edit the policy name** (`lookup: cluster_policy:`). Attached to every classic job cluster |
+| `policy_id` | `CHANGE_ME_POLICY_ID` | **Edit before deploying:** compute policy ID (Compute → Policies → open the policy). Attached to every classic job cluster |
 | `node_type_id` | `Standard_F4s_v2` | Workers, and the setup driver (single-node benchmark node) |
 | `driver_node_type_id` | `Standard_F4s_v2` | Driver of the benchmark cluster |
 | `bench_workers` | `4` | Benchmark workers; peak vCPUs = (`bench_workers` + 1) × 4 |
@@ -124,15 +125,15 @@ come from the runtime.
 
 1. **Workspace → Create → Git folder**, and paste this repository's URL.
 2. In the Git folder, open **`databricks.yml`** and set `catalog` and `schema` under `variables:`, and the
-   compute policy name under `policy_id`. Optionally also set `source_clips_path`, `n_clips` or the node
+   compute policy **ID** under `policy_id`. Optionally also set `source_clips_path`, `n_clips` or the node
    types.
 3. With `databricks.yml` open, click the **Deployments** icon. Choose the
    **dev** target and click **Deploy**. Review the validation summary and confirm.
 4. In **Bundle resources**, run the jobs in the order of their number prefix with the ▶ icon:
-   * `00-video-cls-setup`: setup → export_models → single_node_bench (classic, driver + 1 worker,
-     8 vCPUs; estimate ~30 min on 4-vCPU nodes)
-   * `01-video-cls-benchmark`: one classic cluster (20 vCPUs), core sweep at 4, 8 and 16 concurrent tasks
-     on 48 clips per pass (estimate ~7 min start-up + ~10 min)
+   * `00-video-cls-setup`: schema, volume, clips, synthetic telemetry, `events` (serverless; mostly the
+     D2-City download and the clip copies)
+   * `01-video-cls-benchmark`: one classic cluster (20 vCPUs): export_models → single_node_bench → core
+     sweep at 4, 8 and 16 concurrent tasks on 48 clips per pass (estimate ~7 min start-up + ~20 min)
    * `02-video-cls-scoring`: score_events → report (serverless, ~1 min)
    * *(optional)* `03-video-cls-mlflow-optional`: logs the benchmark results as an MLflow experiment
      (serverless, ~3 min). See [Optional: the benchmark in MLflow](#optional-the-benchmark-in-mlflow)
@@ -171,9 +172,9 @@ non-development deployment. Job parameters can be overridden per run with `--par
 
 | Notebook | Compute | What it does | Writes |
 |---|---|---|---|
-| `00_setup` | classic, driver + 1 worker | Schema/volume, source clips, replication, synthetic JSON, Auto Loader | `events` |
-| `01_export_models` | classic, driver + 1 worker | torchvision weights (HF fallback) → `.pt`, ONNX fp32 opset 17, int8 static QDQ; top-1 agreement on ~100 calibration frames | `model_exports`, `models/` |
-| `02_single_node_bench` | classic, driver + 1 worker | {resnet18, resnet50} × {torch, fp32, int8} × batch {1, 16, 64}, 500 frames, driver only | `bench_single_node` |
+| `00_setup` | serverless | Schema/volume, source clips, replication, synthetic JSON, Auto Loader | `events` |
+| `01_export_models` | classic, benchmark cluster (driver) | torchvision weights (HF fallback) → `.pt`, ONNX fp32 opset 17, int8 static QDQ; top-1 agreement on ~100 calibration frames | `model_exports`, `models/` |
+| `02_single_node_bench` | classic, benchmark cluster (driver) | {resnet18, resnet50} × {torch, fp32, int8} × batch {1, 16, 64}, 500 frames, driver only | `bench_single_node` |
 | `03_cluster_bench` | classic, 4 workers | Full Spark pipeline; per `task_caps` pass: extraction, then one inference pass per `runs` entry | `frames_<label>`, `frame_predictions_<label>`, `bench_cluster` |
 | `04_score_events` | serverless | Sign visible (`sign_class` proxy or fine-tuned) + min speed within `window_s` → severity | `event_scores` |
 | `05_finetune_optional` | classic, driver + 1 worker | Frozen ResNet-18, new 2-class head from `labels/yes`, `labels/no`; ONNX + int8 export. Not runnable on D2-City (no labels) | `models/stopsign_resnet18*` |
@@ -284,10 +285,11 @@ for speed comparisons and fp32 for decisions.
 
 Cost ≈ Σ over tasks of (nodes × DBU/hour per node × hours) + the VM cost of the same nodes. Main drivers:
 
-* **Benchmark job**: one 20-vCPU cluster (5 × 4-vCPU nodes): ~7 min of start-up, then three passes of
-  extraction and three inference runs each. Trim `runs`, `task_caps` or `max_clips` to cut time.
-* **Setup job**: driver + 1 worker (8 vCPUs). Downloading D2-City and copying 1,000 × ~15 MB clips
-  (~15 GB) dominates; use a smaller `n_clips` for a quicker first run.
+* **Benchmark job**: one 20-vCPU cluster (5 × 4-vCPU nodes): ~7 min of start-up, model export and the
+  single-node benchmark (driver only; workers idle), then three passes of extraction and three
+  inference runs each. Trim `runs`, `task_caps` or `max_clips` to cut time.
+* **Setup job**: serverless. Downloading D2-City and copying 1,000 × ~15 MB clips (~15 GB) dominates; use
+  a smaller `n_clips` for a quicker first run.
 * **Scoring/report**: serverless jobs (performance-optimized) for about a minute.
 * Storage: ~15 GB of replicated clips (plus the D2-City ZIP and extract, if downloaded) and small Delta
   tables.

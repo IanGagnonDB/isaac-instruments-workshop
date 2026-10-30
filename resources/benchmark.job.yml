@@ -1,6 +1,8 @@
-# Scaling benchmark for a small vCPU quota: ONE cluster (driver + bench_workers 4-vCPU workers,
-# 20 vCPUs with the defaults) runs 03_cluster_bench.py once per task cap (4, 8, 16 concurrent tasks),
-# so throughput vs cores is measured with a single cluster start-up and no second cluster.
+# Models and benchmarks for a small vCPU quota, all on ONE cluster (driver + bench_workers 4-vCPU
+# workers, 20 vCPUs with the defaults), so there is a single cluster start-up:
+#   1. export_models      01: ResNet-18/50 -> ONNX fp32 + int8 (on the driver; workers idle)
+#   2. single_node_bench  02: PyTorch vs ONNX vs int8 on the driver, same node type as the workers
+#   3. bench_sweep        03: core sweep at 4, 8, 16 concurrent tasks (throughput vs cores)
 # Each pass reads its own max_clips clips; rows are labelled sweep_cap<k> with total_cores = k.
 # The cluster uses the compute policy from databricks.yml (policy_id) and on-demand VMs, since
 # spot pre-emption mid-run would distort the timings.
@@ -39,12 +41,26 @@ resources:
               spark.sql.execution.arrow.maxRecordsPerBatch: "64"
 
       tasks:
+        - task_key: export_models
+          job_cluster_key: bench
+          notebook_task:
+            notebook_path: ../notebooks/01_export_models.py
+          libraries: &libraries
+            - pypi: {package: onnx==1.21.0}
+            - pypi: {package: onnxruntime==1.31.0}
+            - pypi: {package: opencv-python-headless==4.11.0.86}
+
+        - task_key: single_node_bench
+          depends_on: [{task_key: export_models}]
+          job_cluster_key: bench
+          notebook_task:
+            notebook_path: ../notebooks/02_single_node_bench.py
+          libraries: *libraries
+
         - task_key: bench_sweep
+          depends_on: [{task_key: single_node_bench}]
           job_cluster_key: bench
           notebook_task:
             notebook_path: ../notebooks/03_cluster_bench.py
             base_parameters: {num_workers: "${var.bench_workers}", ort_threads: "1", run_label: "sweep"}
-          libraries:
-            - pypi: {package: onnx==1.21.0}
-            - pypi: {package: onnxruntime==1.31.0}
-            - pypi: {package: opencv-python-headless==4.11.0.86}
+          libraries: *libraries

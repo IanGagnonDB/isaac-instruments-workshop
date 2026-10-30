@@ -12,6 +12,12 @@
 # MAGIC
 # MAGIC To use your own clips later, point `source_clips_path` at their folder, or write your own
 # MAGIC event JSON (same fields) into `json/` and skip replication with `n_clips = 0`.
+# MAGIC
+# MAGIC Runs on **serverless** (no cluster start-up, no vCPU quota). The next cell installs OpenCV, the only
+# MAGIC extra this notebook needs; on a classic cluster pip leaves an installed copy as it is.
+
+# COMMAND ----------
+# MAGIC %pip install -q opencv-python-headless==4.11.0.86
 
 # COMMAND ----------
 import os
