@@ -1,0 +1,12 @@
+# Downloaded model weights and local caches
+/models/
+/.cache/
+
+# Local Python environment
+.venv/
+__pycache__/
+
+# Local configuration and OS files
+.env
+.DS_Store
+/.isaac/

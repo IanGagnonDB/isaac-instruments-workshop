@@ -1,0 +1,10 @@
+{
+  "catalog": "CHOOSE_CATALOG",
+  "schema": "CHOOSE_SCHEMA",
+  "volume": "CHOOSE_VOLUME",
+  "trace_warehouse_id": "CHOOSE_SQL_WAREHOUSE_ID",
+  "device": "cpu",
+  "compute_mode": "serverless_cpu",
+  "batch_size": 8,
+  "event_limit": 2
+}
