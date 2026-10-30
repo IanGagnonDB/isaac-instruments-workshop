@@ -1,0 +1,49 @@
+/*
+ * Optional Tailwind CSS v4 bridge.
+ * Vendored from golden-web-slides/design-system/tailwind.css.
+ */
+
+@theme inline {
+  --color-canvas: var(--v3-canvas);
+  --color-canvas-deep: var(--v3-canvas-deep);
+  --color-surface: var(--v3-surface);
+  --color-surface-muted: var(--v3-surface-muted);
+  --color-surface-inverse: var(--v3-surface-inverse);
+  --color-ink: var(--v3-ink);
+  --color-ink-muted: var(--v3-ink-muted);
+  --color-ink-subtle: var(--v3-ink-subtle);
+  --color-line: var(--v3-line);
+  --color-line-strong: var(--v3-line-strong);
+  --color-primary: var(--v3-primary);
+  --color-primary-hover: var(--v3-primary-hover);
+  --color-primary-soft: var(--v3-primary-soft);
+  --color-secondary: var(--v3-secondary);
+  --color-secondary-soft: var(--v3-secondary-soft);
+  --color-databricks: var(--v3-databricks-brand);
+  --color-db-navy: var(--v3-db-navy);
+  --color-db-navy-deep: var(--v3-db-navy-deep);
+  --color-db-oat: var(--v3-db-oat);
+  --color-db-oat-light: var(--v3-db-oat-light);
+  --color-db-gray-text: var(--v3-db-gray-text);
+  --color-db-gray-line: var(--v3-db-gray-line);
+  --color-on-primary: var(--v3-on-primary);
+  --color-on-inverse: var(--v3-on-inverse);
+  --color-accent: var(--v3-accent);
+  --color-accent-soft: var(--v3-accent-soft);
+  --color-positive: var(--v3-positive);
+  --color-positive-soft: var(--v3-positive-soft);
+  --color-warning: var(--v3-warning);
+  --color-focus: var(--v3-focus);
+  --font-ui: var(--v3-font-ui);
+  --font-display: var(--v3-font-display);
+  --font-mono: var(--v3-font-mono);
+  --font-databricks: var(--v3-font-databricks);
+  --radius-xs: var(--v3-radius-xs);
+  --radius-sm: var(--v3-radius-sm);
+  --radius-md: var(--v3-radius-md);
+  --radius-lg: var(--v3-radius-lg);
+  --radius-pill: var(--v3-radius-pill);
+  --shadow-xs: var(--v3-shadow-xs);
+  --shadow-sm: var(--v3-shadow-sm);
+  --shadow-md: var(--v3-shadow-md);
+}

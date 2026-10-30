@@ -282,6 +282,10 @@ quantization, the UDF contract, the scoring SQL bands and window, the parallel-s
 cluster where only the notebook added `src/` to its path. `test_tracking.py` logs sample benchmark tables
 to a temporary local MLflow store and checks the runs, metrics, charts and the skip on rerun.
 
+## Art of the possible: SAM3 video segmentation app
+
+[`app/`](app/README.md) holds a separate, optional Databricks App: type a prompt such as `pedestrian` or `open car door` and SAM3 segments every match in a dashcam clip, then a vision-language model writes a narrative. It runs on a GPU Model Serving endpoint (no GPU cluster) and deploys with its own Asset Bundle. Follow [app/README.md](app/README.md): prerequisites (Hugging Face access to SAM3 and the Nexar sample clips) first, then the bundle deploy. It is not needed for the workshop jobs `00` to `04`, and the workshop bundle does not deploy it.
+
 ## Licences
 
 torchvision ResNet weights (BSD-3-Clause) or `microsoft/resnet-18` / `microsoft/resnet-50` on Hugging

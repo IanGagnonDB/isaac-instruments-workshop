@@ -4,6 +4,11 @@ bundle:
 include:
   - resources/*.yml
 
+# app/ is a separate bundle (the SAM3 app) with its own databricks.yml; the workshop never uploads it.
+sync:
+  exclude:
+    - app/**
+
 # Nothing is built at deploy time: notebooks import src/video_cls from this folder and ship it to
 # Spark executors by value. That keeps the bundle deployable from a Git folder in the workspace UI.
 

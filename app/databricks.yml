@@ -1,0 +1,223 @@
+bundle:
+  name: isaac-sam3-video-app
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for the schema, volume, and registered SAM3 model.
+  schema:
+    description: Schema for the volume and registered SAM3 model. Must already exist.
+  volume:
+    description: Volume for inputs, outputs, descriptions, and model checkpoints. Must already exist.
+    default: auto_segment
+  gpu_workload_type:
+    description: >-
+      Model Serving GPU type for SAM3. AWS GPU_MEDIUM (A10G). Azure GPU_SMALL (T4) or
+      GPU_LARGE (A100). Azure has no GPU_MEDIUM.
+  scale_to_zero:
+    description: '"false" keeps the SAM3 endpoint warm. "true" saves cost but adds a cold start of several minutes.'
+    default: "false"
+  sam3_endpoint:
+    description: Name of the SAM3 Model Serving endpoint the setup job creates.
+    default: sam3-video-frames
+  app_name:
+    description: Databricks App name (30 characters or fewer).
+    default: sam3-video-segmentation
+  secret_scope:
+    description: Secret scope holding the Hugging Face token.
+    default: sam3-video-app
+  secret_key:
+    description: Secret key of the Hugging Face token.
+    default: hf_token
+  luna_model:
+    description: Vision-capable Foundation Model API endpoint for the "luna" narrative option.
+    default: databricks-gpt-5-6-luna
+  fmapi_model:
+    description: Vision-capable Foundation Model API endpoint for the "gemini" narrative option.
+    default: databricks-gemini-3-8-flash
+  sample_clips_per_class:
+    description: Nexar sample clips per class (collision/near-miss and normal driving).
+    default: "15"
+  volume_path:
+    description: Derived Volume path. Do not override.
+    default: /Volumes/${var.catalog}/${var.schema}/${var.volume}
+
+resources:
+  apps:
+    sam3_video_app:
+      name: ${var.app_name}
+      description: "SAM3 video segmentation with visual narratives."
+      compute_size: LARGE
+      source_code_path: ./src
+      config:
+        command: ["python", "app.py"]
+        env:
+          # The SAM3 endpoint is created by the setup job, which also grants this app
+          # CAN_QUERY on it. It is referenced by name so the app can deploy first.
+          - name: SAM3_ENDPOINT_1
+            value: ${var.sam3_endpoint}
+          - name: VISUAL_TRANSCRIPT_ENDPOINT
+            value_from: visual-transcript-endpoint
+          - name: GEMINI_VISUAL_TRANSCRIPT_ENDPOINT
+            value_from: gemini-transcript-endpoint
+          - name: AUTO_SEGMENT_VOLUME_PATH
+            value: ${var.volume_path}
+      resources:
+        - name: visual-transcript-endpoint
+          serving_endpoint:
+            name: ${var.luna_model}
+            permission: CAN_QUERY
+        - name: gemini-transcript-endpoint
+          serving_endpoint:
+            name: ${var.fmapi_model}
+            permission: CAN_QUERY
+        - name: app-volume-read
+          uc_securable:
+            securable_full_name: ${var.catalog}.${var.schema}.${var.volume}
+            securable_type: VOLUME
+            permission: READ_VOLUME
+        - name: app-volume-write
+          uc_securable:
+            securable_full_name: ${var.catalog}.${var.schema}.${var.volume}
+            securable_type: VOLUME
+            permission: WRITE_VOLUME
+
+  jobs:
+    setup:
+      name: sam3-app-setup
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: register_model
+          environment_key: default
+          notebook_task:
+            notebook_path: ./notebooks/model_sam3_frames_v2.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              checkpoint_root: ${var.volume_path}/model_checkpoints
+              secret_scope: ${var.secret_scope}
+              secret_key: ${var.secret_key}
+            source: WORKSPACE
+        - task_key: deploy_endpoint
+          depends_on:
+            - task_key: register_model
+          environment_key: default
+          notebook_task:
+            notebook_path: ./notebooks/deploy_sam3_endpoint_v2.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              endpoint_name: ${var.sam3_endpoint}
+              gpu_workload_type: ${var.gpu_workload_type}
+              scale_to_zero: ${var.scale_to_zero}
+              app_name: ${resources.apps.sam3_video_app.name}
+            source: WORKSPACE
+        - task_key: fetch_sample_clips
+          environment_key: samples
+          notebook_task:
+            notebook_path: ./notebooks/fetch_sample_clips.py
+            base_parameters:
+              volume_root: ${var.volume_path}
+              per_class: ${var.sample_clips_per_class}
+              secret_scope: ${var.secret_scope}
+              secret_key: ${var.secret_key}
+            source: WORKSPACE
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+            dependencies:
+              - accelerate==1.12.0
+              - databricks-sdk==0.44.1
+              - huggingface-hub
+              - mlflow
+              - opencv-python-headless==4.12.0.88
+              - transformers==5.4.0
+        - environment_key: samples
+          spec:
+            client: "4"
+            dependencies:
+              - huggingface-hub
+
+    update_endpoint:
+      name: sam3-app-update-endpoint
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: deploy_endpoint
+          environment_key: default
+          notebook_task:
+            notebook_path: ./notebooks/deploy_sam3_endpoint_v2.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              endpoint_name: ${var.sam3_endpoint}
+              gpu_workload_type: ${var.gpu_workload_type}
+              scale_to_zero: ${var.scale_to_zero}
+              app_name: ${resources.apps.sam3_video_app.name}
+            source: WORKSPACE
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+            dependencies:
+              - databricks-sdk==0.44.1
+              - mlflow
+
+    segment_video:
+      name: sam3-segment-video
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      performance_target: PERFORMANCE_OPTIMIZED
+      tasks:
+        - task_key: segment
+          environment_key: default
+          notebook_task:
+            notebook_path: ./notebooks/job_segment_video_v2.py
+            base_parameters:
+              trigger_location: ""
+              prompt: car
+              frame_stride: "30"
+              threshold: "0.5"
+              truncate: "true"
+              inference_width: "960"
+              max_sampled_frames: "1200"
+              endpoint_name: ${var.sam3_endpoint}
+              volume_root: ${var.volume_path}
+            source: WORKSPACE
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+            dependencies:
+              - databricks-sdk==0.44.1
+              - imageio-ffmpeg==0.6.0
+              - opencv-python-headless==4.12.0.88
+
+    transcribe_video:
+      name: sam3-transcribe-video
+      max_concurrent_runs: 10
+      queue:
+        enabled: true
+      performance_target: PERFORMANCE_OPTIMIZED
+      tasks:
+        - task_key: transcribe
+          environment_key: default
+          notebook_task:
+            notebook_path: ./notebooks/job_transcribe_video_v2.py
+            base_parameters:
+              trigger_location: ""
+              prompt: car
+              fmapi_model: ${var.fmapi_model}
+              volume_root: ${var.volume_path}
+            source: WORKSPACE
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+            dependencies:
+              - openai
+
+targets:
+  dev:
+    default: true
+    mode: development
