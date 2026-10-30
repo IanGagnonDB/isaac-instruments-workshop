@@ -58,3 +58,7 @@ Both participants need USE CATALOG, USE SCHEMA and READ/WRITE VOLUME. Notebook 0
 Models, experiments and output paths are derived from signed-in identity. On compute that shares a notebook execution session, take turns running cells; separate usernames alone do not isolate a shared Python process. Use independent notebook sessions for concurrent hands-on work, and change shared configuration only when both participants have stopped. Model alias changes are shared by sessions of the same identity; re-running 03 intentionally creates versions.
 
 See the [facilitator runbook](docs/facilitator-runbook.md) for recovery and a fresh-workspace checklist, and [workshop plan](docs/workshop-plan.md) for scope. Local checks do not establish live ML v6/Spark/Unity Catalog compatibility: validate the complete flow in the customer workspace.
+
+## Art of the possible: SAM3 video segmentation app
+
+[`app/`](app/README.md) holds a separate, optional Databricks App: type a prompt such as `pedestrian` or `open car door` and SAM3 segments every match in a dashcam clip, then a vision-language model writes a narrative. It runs on a GPU Model Serving endpoint (no GPU cluster) and deploys with its own Asset Bundle. Follow [app/README.md](app/README.md): prerequisites (Hugging Face access to SAM3 and the Nexar sample clips) first, then the bundle deploy. It is not needed for notebooks 00 to 04.

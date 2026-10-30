@@ -1,0 +1,120 @@
+/*
+ * GSA + Databricks Center of Excellence design tokens.
+ * Vendored from golden-web-slides/design-system/tokens.css.
+ */
+
+:root,
+.v3-theme-root {
+  color-scheme: light;
+
+  --v3-font-ui: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --v3-font-display: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
+  --v3-font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  --v3-font-databricks: 'DM Sans', system-ui, sans-serif;
+  --v3-text-xs: 0.72rem;
+  --v3-text-sm: 0.84rem;
+  --v3-text-body: 0.9rem;
+  --v3-text-h3: clamp(1.25rem, 1.7vw, 1.6rem);
+  --v3-text-h2: clamp(1.65rem, 3vw, 2.6rem);
+  --v3-leading-body: 1.62;
+
+  --v3-canvas: #f5f8fa;
+  --v3-canvas-deep: #e9f0f4;
+  --v3-surface: #ffffff;
+  --v3-surface-muted: #e9f0f4;
+  --v3-surface-inverse: #0d2436;
+  --v3-ink: #172b3a;
+  --v3-ink-muted: #4a5d6b;
+  --v3-ink-subtle: #6f818d;
+  --v3-line: #c7d5df;
+  --v3-line-strong: #9aabb6;
+  --v3-primary: #003c71;
+  --v3-primary-hover: #002b52;
+  --v3-primary-soft: #e6f1f7;
+  --v3-secondary: #862633;
+  --v3-secondary-soft: #f7e9eb;
+  --v3-databricks-brand: #ff3621;
+  --v3-db-navy: #1b3139;
+  --v3-db-navy-deep: #0b2026;
+  --v3-db-oat: #eeede9;
+  --v3-db-oat-light: #f9f7f4;
+  --v3-db-gray-text: #5a6f77;
+  --v3-db-gray-line: #dce0e2;
+  --v3-on-primary: #ffffff;
+  --v3-on-inverse: #eef4f7;
+  --v3-accent: #2f5d86;
+  --v3-accent-soft: color-mix(in srgb, var(--v3-accent) 10%, var(--v3-surface));
+  --v3-positive: #2c6a43;
+  --v3-positive-soft: #e5f2ea;
+  --v3-warning: #8a5a1a;
+  --v3-focus: #2f5d86;
+  --v3-grid-line: color-mix(in srgb, var(--v3-line) 60%, transparent);
+
+  --v3-radius-xs: 2px;
+  --v3-radius-sm: 3px;
+  --v3-radius-md: 5px;
+  --v3-radius-lg: 7px;
+  --v3-radius-pill: 999px;
+  --v3-shadow-xs: 0 1px 1px rgb(16 32 43 / 5%);
+  --v3-shadow-sm: 0 2px 6px rgb(16 32 43 / 7%);
+  --v3-shadow-md: 0 10px 30px rgb(16 32 43 / 9%);
+  --v3-control-height: 2.5rem;
+
+  --v3-duration-fast: 120ms;
+  --v3-duration-base: 200ms;
+  --v3-duration-partnership: 4s;
+  --v3-ease: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+[data-palette='uswds'] {
+  --v3-canvas: #f7f9fa;
+  --v3-canvas-deep: #eceeef;
+  --v3-surface: #ffffff;
+  --v3-surface-muted: #edf0f1;
+  --v3-surface-inverse: #14293c;
+  --v3-ink: #1b1b1b;
+  --v3-ink-muted: #565c65;
+  --v3-ink-subtle: #7c828a;
+  --v3-line: #c9c9c9;
+  --v3-line-strong: #97999b;
+  --v3-primary: #005ea8;
+  --v3-primary-hover: #1a4480;
+  --v3-primary-soft: #e7f2f8;
+  --v3-secondary: #d83933;
+  --v3-secondary-soft: #f8e7e6;
+}
+
+[data-scheme='dark'] {
+  color-scheme: dark;
+  --v3-canvas: #0b1922;
+  --v3-canvas-deep: #060f16;
+  --v3-surface: #10222d;
+  --v3-surface-muted: #17303c;
+  --v3-surface-inverse: #e9eff2;
+  --v3-ink: #e9eff2;
+  --v3-ink-muted: #a3b6c0;
+  --v3-ink-subtle: #7c9099;
+  --v3-line: #24404c;
+  --v3-line-strong: #4a6772;
+  --v3-primary: #7fb8dc;
+  --v3-primary-hover: #a7d0ea;
+  --v3-primary-soft: #12303f;
+  --v3-secondary: #e79aab;
+  --v3-secondary-soft: #331a22;
+  --v3-on-primary: #06171f;
+  --v3-on-inverse: #0d1b23;
+  --v3-accent: #7fb0d6;
+  --v3-positive: #6cb388;
+  --v3-positive-soft: #123021;
+  --v3-warning: #d4a45f;
+  --v3-focus: #7fb0d6;
+  --v3-grid-line: color-mix(in srgb, var(--v3-line) 45%, transparent);
+  --v3-shadow-xs: 0 1px 2px rgb(0 0 0 / 30%);
+  --v3-shadow-sm: 0 3px 8px rgb(0 0 0 / 34%);
+  --v3-shadow-md: 0 14px 34px rgb(0 0 0 / 44%);
+}
+
+[data-motion='reduced'] {
+  --v3-duration-fast: 0.01ms;
+  --v3-duration-base: 0.01ms;
+}

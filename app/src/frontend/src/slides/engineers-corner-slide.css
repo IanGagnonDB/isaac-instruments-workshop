@@ -1,0 +1,443 @@
+.engineers-corner {
+  --ec-bg: #102d32;
+  --ec-bg-deep: #081d22;
+  --ec-panel: #16383e;
+  --ec-panel-raised: #1b454c;
+  --ec-line: rgb(216 242 238 / 16%);
+  --ec-line-strong: rgb(216 242 238 / 29%);
+  --ec-ink: #f4f8f7;
+  --ec-muted: #b3c8c6;
+  --ec-green: #2bd39b;
+  --ec-coral: #ff654f;
+  --ec-amber: #ffc66d;
+
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(1rem, 2.5vw, 2.35rem) clamp(1rem, 3.2vw, 3rem);
+  overflow: auto;
+  container-name: engineers-corner;
+  container-type: inline-size;
+  grid-template-rows: auto minmax(15rem, 1fr) auto;
+  gap: clamp(0.9rem, 2.2vh, 1.5rem);
+  color: var(--ec-ink);
+  background:
+    radial-gradient(circle at 72% 110%, rgb(43 211 155 / 15%), transparent 35%),
+    radial-gradient(circle at 18% -12%, rgb(255 101 79 / 12%), transparent 30%),
+    linear-gradient(135deg, var(--ec-bg) 0%, var(--ec-bg-deep) 100%);
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+.engineers-corner *,
+.engineers-corner *::before,
+.engineers-corner *::after {
+  box-sizing: border-box;
+}
+
+.engineers-corner::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgb(255 255 255 / 2.5%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 2.5%) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, black, transparent 72%);
+  content: "";
+}
+
+.engineers-corner__header {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1.25fr) minmax(18rem, 0.75fr);
+  gap: clamp(1rem, 4vw, 4rem);
+  align-items: end;
+}
+
+.engineers-corner__eyebrow {
+  display: flex;
+  margin: 0 0 0.45rem;
+  gap: 0.55rem;
+  align-items: center;
+  color: var(--ec-coral);
+  font-size: clamp(0.57rem, 0.78vw, 0.72rem);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.engineers-corner__eyebrow::before {
+  width: 1.7rem;
+  height: 2px;
+  background: currentcolor;
+  content: "";
+}
+
+.engineers-corner__header h2 {
+  max-width: 54rem;
+  margin: 0;
+  color: var(--ec-ink);
+  font-size: clamp(1.9rem, 3.8vw, 3.75rem);
+  font-weight: 450;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.engineers-corner__intro {
+  max-width: 37rem;
+  margin: 0;
+  color: var(--ec-muted);
+  font-size: clamp(0.72rem, 1.05vw, 0.95rem);
+  line-height: 1.48;
+}
+
+.engineers-corner__pipeline-scroll {
+  min-width: 0;
+  min-height: 0;
+  padding: 0.35rem 0 0.65rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: var(--ec-green) rgb(255 255 255 / 8%);
+  scrollbar-width: thin;
+}
+
+.engineers-corner__pipeline-scroll:focus-visible {
+  outline: 2px solid var(--ec-green);
+  outline-offset: 3px;
+}
+
+.engineers-corner__pipeline {
+  display: grid;
+  width: 100%;
+  min-width: 70rem;
+  min-height: 100%;
+  padding: 0;
+  margin: 0;
+  grid-template-columns:
+    minmax(8.5rem, 0.85fr)
+    minmax(9rem, 0.92fr)
+    minmax(13.5rem, 1.4fr)
+    minmax(10rem, 1fr)
+    minmax(9rem, 0.92fr)
+    minmax(9.5rem, 0.98fr)
+    minmax(10rem, 1fr);
+  gap: clamp(0.72rem, 1.4vw, 1.15rem);
+  list-style: none;
+}
+
+.engineers-corner__stage {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 14rem;
+  padding: clamp(0.8rem, 1.4vw, 1.15rem);
+  overflow: visible;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
+  color: var(--ec-ink);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 7%), transparent 48%),
+    var(--ec-panel);
+  border: 1px solid var(--ec-line);
+  border-radius: 0.35rem;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 20%);
+}
+
+.engineers-corner__stage:not(:last-child)::after {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: calc(100% + 0.14rem);
+  color: var(--ec-green);
+  content: "→";
+  font-size: clamp(0.85rem, 1.4vw, 1.25rem);
+  font-weight: 800;
+  line-height: 1;
+  transform: translateY(-50%);
+}
+
+.engineers-corner__step {
+  position: absolute;
+  top: 0.72rem;
+  right: 0.72rem;
+  color: rgb(244 248 247 / 34%);
+  font-size: 0.54rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.engineers-corner__icon {
+  display: grid;
+  width: clamp(2.2rem, 3.4vw, 3rem);
+  aspect-ratio: 1;
+  margin-bottom: clamp(0.65rem, 1.5vh, 1rem);
+  place-items: center;
+  color: var(--icon-color, var(--ec-green));
+  background: color-mix(in srgb, var(--icon-color, var(--ec-green)) 12%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--icon-color, var(--ec-green)) 35%, transparent);
+  border-radius: 0.3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: clamp(0.85rem, 1.3vw, 1.15rem);
+  font-weight: 800;
+}
+
+.engineers-corner__icon--source,
+.engineers-corner__icon--loop {
+  --icon-color: var(--ec-coral);
+}
+
+.engineers-corner__icon--model,
+.engineers-corner__icon--summary {
+  --icon-color: var(--ec-amber);
+}
+
+.engineers-corner__icon--output {
+  border-radius: 50%;
+}
+
+.engineers-corner__stage > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.engineers-corner__stage h3 {
+  margin: 0;
+  color: var(--ec-ink);
+  font-size: clamp(0.78rem, 1.12vw, 1rem);
+  font-weight: 720;
+  line-height: 1.15;
+}
+
+.engineers-corner__stage p {
+  margin: 0.5rem 0 0;
+  color: var(--ec-muted);
+  font-size: clamp(0.61rem, 0.82vw, 0.75rem);
+  line-height: 1.42;
+}
+
+.engineers-corner__meta {
+  display: block;
+  padding-top: 0.55rem;
+  margin-top: auto;
+  color: var(--ec-green);
+  border-top: 1px solid var(--ec-line);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: clamp(0.49rem, 0.62vw, 0.58rem);
+  line-height: 1.25;
+  letter-spacing: 0.025em;
+}
+
+.engineers-corner__stage--loop {
+  padding-top: clamp(1.45rem, 2.5vw, 1.85rem);
+  background:
+    linear-gradient(145deg, rgb(255 101 79 / 13%), transparent 50%),
+    var(--ec-panel-raised);
+  border: 2px solid var(--ec-coral);
+  box-shadow:
+    0 0 0 4px rgb(255 101 79 / 8%),
+    0 14px 32px rgb(0 0 0 / 28%);
+}
+
+.engineers-corner__loop-label {
+  position: absolute;
+  top: -0.52rem;
+  left: 0.7rem;
+  padding: 0.22rem 0.42rem;
+  color: #fff;
+  background: var(--ec-coral);
+  border-radius: 0.18rem;
+  font-size: clamp(0.47rem, 0.63vw, 0.58rem);
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.engineers-corner__loop-steps {
+  display: grid;
+  padding: 0;
+  margin: 0.55rem 0 0;
+  gap: 0.28rem;
+  list-style: none;
+}
+
+.engineers-corner__loop-steps li {
+  display: grid;
+  min-width: 0;
+  padding: 0.28rem 0.35rem;
+  grid-template-columns: 1.1rem minmax(0, 1fr);
+  gap: 0.35rem;
+  align-items: center;
+  color: var(--ec-muted);
+  background: rgb(5 24 28 / 35%);
+  border: 1px solid rgb(255 255 255 / 7%);
+  font-size: clamp(0.52rem, 0.67vw, 0.62rem);
+  line-height: 1.15;
+}
+
+.engineers-corner__loop-steps span {
+  display: grid;
+  width: 1rem;
+  height: 1rem;
+  place-items: center;
+  color: var(--ec-coral);
+  border: 1px solid rgb(255 101 79 / 40%);
+  border-radius: 50%;
+  font-size: 0.46rem;
+  font-weight: 800;
+}
+
+.engineers-corner__stage--serving {
+  border-color: rgb(255 198 109 / 31%);
+}
+
+.engineers-corner__stage--summary {
+  background:
+    linear-gradient(145deg, rgb(255 198 109 / 10%), transparent 48%),
+    var(--ec-panel);
+}
+
+.engineers-corner__stage--output {
+  background:
+    linear-gradient(145deg, rgb(43 211 155 / 13%), transparent 48%),
+    var(--ec-panel);
+  border-color: rgb(43 211 155 / 33%);
+}
+
+.engineers-corner__controls {
+  display: grid;
+  min-width: 0;
+  padding-top: clamp(0.75rem, 1.6vh, 1.1rem);
+  grid-template-columns: minmax(9rem, 0.65fr) minmax(0, 4.35fr);
+  gap: clamp(0.9rem, 2vw, 1.6rem);
+  border-top: 1px solid var(--ec-line-strong);
+}
+
+.engineers-corner__controls-heading span {
+  color: var(--ec-coral);
+  font-size: 0.52rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.engineers-corner__controls-heading h3 {
+  margin: 0.2rem 0 0;
+  color: var(--ec-ink);
+  font-size: clamp(0.78rem, 1.15vw, 1rem);
+  line-height: 1.1;
+}
+
+.engineers-corner__controls dl {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: clamp(0.45rem, 0.8vw, 0.7rem);
+}
+
+.engineers-corner__controls dl > div {
+  min-width: 0;
+  padding-left: clamp(0.45rem, 0.7vw, 0.7rem);
+  border-left: 2px solid var(--ec-line-strong);
+}
+
+.engineers-corner__controls dt {
+  color: var(--ec-ink);
+  font-size: clamp(0.52rem, 0.7vw, 0.65rem);
+  font-weight: 720;
+  line-height: 1.22;
+}
+
+.engineers-corner__controls dd {
+  margin: 0.25rem 0 0;
+  color: var(--ec-muted);
+  font-size: clamp(0.46rem, 0.59vw, 0.55rem);
+  line-height: 1.3;
+}
+
+@container engineers-corner (max-width: 900px) {
+  .engineers-corner__header {
+    grid-template-columns: minmax(0, 1.2fr) minmax(14rem, 0.8fr);
+  }
+
+  .engineers-corner__controls {
+    grid-template-columns: 1fr;
+  }
+
+  .engineers-corner__controls-heading {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+  }
+
+  .engineers-corner__controls dl {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    row-gap: 0.75rem;
+  }
+}
+
+@container engineers-corner (max-width: 620px) {
+  .engineers-corner {
+    padding: 1rem;
+    grid-template-rows: auto minmax(15rem, 1fr) auto;
+  }
+
+  .engineers-corner__header {
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
+  }
+
+  .engineers-corner__header h2 {
+    font-size: clamp(1.75rem, 8.6vw, 2.5rem);
+  }
+
+  .engineers-corner__intro {
+    font-size: 0.7rem;
+  }
+
+  .engineers-corner__controls dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container engineers-corner (max-width: 380px) {
+  .engineers-corner__controls dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .engineers-corner__header,
+  .engineers-corner__pipeline-scroll,
+  .engineers-corner__controls {
+    animation: engineers-corner-enter 420ms ease-out both;
+  }
+
+  .engineers-corner__pipeline-scroll {
+    animation-delay: 70ms;
+  }
+
+  .engineers-corner__controls {
+    animation-delay: 130ms;
+  }
+}
+
+@keyframes engineers-corner-enter {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+}
