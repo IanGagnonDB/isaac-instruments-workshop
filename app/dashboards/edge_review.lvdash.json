@@ -1,0 +1,522 @@
+{
+  "datasets": [
+    {
+      "name": "kpis",
+      "displayName": "Review KPIs",
+      "query": "SELECT COUNT(*) AS events, COUNT_IF(review_status = 'reviewed') AS reviewed, COUNT_IF(review_status = 'reviewed' AND edge_classification_correct = false) AS misclassified, ROUND(100.0 * COUNT_IF(review_status = 'reviewed' AND edge_classification_correct = false) / NULLIF(COUNT_IF(review_status = 'reviewed'), 0), 1) AS misclassification_rate_pct FROM edge_events"
+    },
+    {
+      "name": "by_type",
+      "displayName": "Misclassification by edge event type",
+      "query": "SELECT event_type AS edge_event_type, COUNT_IF(review_status = 'reviewed') AS reviewed, COUNT_IF(review_status = 'reviewed' AND edge_classification_correct = false) AS misclassified, ROUND(100.0 * COUNT_IF(review_status = 'reviewed' AND edge_classification_correct = false) / NULLIF(COUNT_IF(review_status = 'reviewed'), 0), 1) AS misclassification_rate_pct FROM edge_events GROUP BY event_type"
+    },
+    {
+      "name": "corrections",
+      "displayName": "Edge label vs reviewer label",
+      "query": "SELECT event_type AS edge_said, corrected_event_type AS reviewer_said, COUNT(*) AS events FROM edge_events WHERE review_status = 'reviewed' AND edge_classification_correct = false GROUP BY ALL ORDER BY events DESC"
+    },
+    {
+      "name": "misclassified_detail",
+      "displayName": "Misclassified events (latest grade)",
+      "query": "SELECT r.event_id, e.vehicle_id, r.edge_event_type AS edge_said, r.corrected_event_type AS reviewer_said, r.edge_severity, r.severity AS reviewer_severity, r.notes, r.reviewer, r.submitted_at, e.clip FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY event_id ORDER BY submitted_at DESC) AS rn FROM event_reviews) r JOIN edge_events e ON r.event_id = e.event_id WHERE r.rn = 1 AND r.edge_classification_correct = false ORDER BY r.submitted_at DESC"
+    },
+    {
+      "name": "severity_agreement",
+      "displayName": "Edge severity vs reviewer severity",
+      "query": "SELECT edge_severity, reviewed_severity AS reviewer_severity, COUNT(*) AS events FROM edge_events WHERE review_status = 'reviewed' GROUP BY ALL ORDER BY events DESC"
+    },
+    {
+      "name": "status",
+      "displayName": "Review status",
+      "query": "SELECT review_status, COUNT(*) AS events FROM edge_events GROUP BY review_status"
+    }
+  ],
+  "pages": [
+    {
+      "name": "edge_review_quality",
+      "displayName": "Edge classification quality",
+      "layout": [
+        {
+          "widget": {
+            "name": "kpi_events",
+            "title": "Edge events",
+            "description": "",
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "events",
+                  "displayName": "Events"
+                }
+              }
+            },
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "events",
+                      "expression": "`events`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ]
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_reviewed",
+            "title": "Reviewed",
+            "description": "",
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "reviewed",
+                  "displayName": "Reviewed"
+                }
+              }
+            },
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "reviewed",
+                      "expression": "`reviewed`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ]
+          },
+          "position": {
+            "x": 1,
+            "y": 0,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_misclassified",
+            "title": "Misclassified by the edge",
+            "description": "Reviewed events where the reviewer said the edge classification was wrong",
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "misclassified",
+                  "displayName": "Misclassified"
+                }
+              }
+            },
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "misclassified",
+                      "expression": "`misclassified`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ]
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_rate",
+            "title": "Misclassification rate (%)",
+            "description": "Misclassified as a share of reviewed events",
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "misclassification_rate_pct",
+                  "displayName": "Rate (%)"
+                }
+              }
+            },
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "misclassification_rate_pct",
+                      "expression": "`misclassification_rate_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ]
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "chart_by_type",
+            "title": "Misclassified events by edge event type",
+            "description": "",
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "edge_event_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Edge event type"
+                },
+                "y": {
+                  "fieldName": "sum(misclassified)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Misclassified events"
+                }
+              }
+            },
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "by_type",
+                  "fields": [
+                    {
+                      "name": "edge_event_type",
+                      "expression": "`edge_event_type`"
+                    },
+                    {
+                      "name": "sum(misclassified)",
+                      "expression": "SUM(`misclassified`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ]
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "table_corrections",
+            "title": "What the edge said vs what the reviewer said",
+            "description": "",
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "edge_said",
+                    "displayName": "Edge said"
+                  },
+                  {
+                    "fieldName": "reviewer_said",
+                    "displayName": "Reviewer said"
+                  },
+                  {
+                    "fieldName": "events",
+                    "displayName": "Events"
+                  }
+                ]
+              }
+            },
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "corrections",
+                  "fields": [
+                    {
+                      "name": "edge_said",
+                      "expression": "`edge_said`"
+                    },
+                    {
+                      "name": "reviewer_said",
+                      "expression": "`reviewer_said`"
+                    },
+                    {
+                      "name": "events",
+                      "expression": "`events`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ]
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "table_misclassified",
+            "title": "Misclassified events and reviewer notes",
+            "description": "",
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "event_id",
+                    "displayName": "Event"
+                  },
+                  {
+                    "fieldName": "vehicle_id",
+                    "displayName": "Vehicle"
+                  },
+                  {
+                    "fieldName": "edge_said",
+                    "displayName": "Edge said"
+                  },
+                  {
+                    "fieldName": "reviewer_said",
+                    "displayName": "Reviewer said"
+                  },
+                  {
+                    "fieldName": "edge_severity",
+                    "displayName": "Edge severity"
+                  },
+                  {
+                    "fieldName": "reviewer_severity",
+                    "displayName": "Reviewer severity"
+                  },
+                  {
+                    "fieldName": "notes",
+                    "displayName": "Reviewer note"
+                  },
+                  {
+                    "fieldName": "reviewer",
+                    "displayName": "Reviewer"
+                  },
+                  {
+                    "fieldName": "submitted_at",
+                    "displayName": "Graded at"
+                  },
+                  {
+                    "fieldName": "clip",
+                    "displayName": "Clip"
+                  }
+                ]
+              }
+            },
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "misclassified_detail",
+                  "fields": [
+                    {
+                      "name": "event_id",
+                      "expression": "`event_id`"
+                    },
+                    {
+                      "name": "vehicle_id",
+                      "expression": "`vehicle_id`"
+                    },
+                    {
+                      "name": "edge_said",
+                      "expression": "`edge_said`"
+                    },
+                    {
+                      "name": "reviewer_said",
+                      "expression": "`reviewer_said`"
+                    },
+                    {
+                      "name": "edge_severity",
+                      "expression": "`edge_severity`"
+                    },
+                    {
+                      "name": "reviewer_severity",
+                      "expression": "`reviewer_severity`"
+                    },
+                    {
+                      "name": "notes",
+                      "expression": "`notes`"
+                    },
+                    {
+                      "name": "reviewer",
+                      "expression": "`reviewer`"
+                    },
+                    {
+                      "name": "submitted_at",
+                      "expression": "`submitted_at`"
+                    },
+                    {
+                      "name": "clip",
+                      "expression": "`clip`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ]
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "table_severity",
+            "title": "Edge severity vs reviewer severity",
+            "description": "",
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "edge_severity",
+                    "displayName": "Edge severity"
+                  },
+                  {
+                    "fieldName": "reviewer_severity",
+                    "displayName": "Reviewer severity"
+                  },
+                  {
+                    "fieldName": "events",
+                    "displayName": "Events"
+                  }
+                ]
+              }
+            },
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "severity_agreement",
+                  "fields": [
+                    {
+                      "name": "edge_severity",
+                      "expression": "`edge_severity`"
+                    },
+                    {
+                      "name": "reviewer_severity",
+                      "expression": "`reviewer_severity`"
+                    },
+                    {
+                      "name": "events",
+                      "expression": "`events`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ]
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "chart_status",
+            "title": "Review status",
+            "description": "",
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "sum(events)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Events"
+                },
+                "color": {
+                  "fieldName": "review_status",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Status"
+                }
+              }
+            },
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "status",
+                  "fields": [
+                    {
+                      "name": "review_status",
+                      "expression": "`review_status`"
+                    },
+                    {
+                      "name": "sum(events)",
+                      "expression": "SUM(`events`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ]
+          },
+          "position": {
+            "x": 3,
+            "y": 16,
+            "width": 3,
+            "height": 6
+          }
+        }
+      ]
+    }
+  ]
+}

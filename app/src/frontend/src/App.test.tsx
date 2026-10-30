@@ -25,6 +25,7 @@ vi.mock('./api', async () => {
     streamRun: vi.fn(),
     listInputs: vi.fn().mockResolvedValue({ items: [], root: '/Volumes/test/inputs' }),
     listOutputs: vi.fn().mockResolvedValue({ items: [], root: '/Volumes/test/outputs' }),
+    listEvents: vi.fn().mockResolvedValue({ items: [], table: 'test.video.edge_events' }),
   }
 })
 
@@ -64,6 +65,7 @@ describe('App', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Launch the demonstration' }),
     )
+    fireEvent.click(screen.getByRole('button', { name: /Free search/ }))
     expect(screen.getByText('Databricks @ The Forge')).toBeTruthy()
     expect(
       screen.getByRole('navigation', { name: 'Experience sections' }),
@@ -96,6 +98,7 @@ describe('App', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Launch the demonstration' }),
     )
+    fireEvent.click(screen.getByRole('button', { name: /Free search/ }))
     const picker = screen.getByLabelText(/Video filename/i)
     fireEvent.focus(picker)
 
@@ -113,6 +116,7 @@ describe('App', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Launch the demonstration' }),
     )
+    fireEvent.click(screen.getByRole('button', { name: /Free search/ }))
 
     fireEvent.click(screen.getByRole('button', { name: /Architecture/ }))
     expect(
@@ -155,6 +159,7 @@ describe('App', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Launch the demonstration' }),
     )
+    fireEvent.click(screen.getByRole('button', { name: /Free search/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Browser upload' }))
     const file = new File(['video'], 'tank.mp4', { type: 'video/mp4' })
     fireEvent.change(screen.getByLabelText(/Choose a video to upload/i), {

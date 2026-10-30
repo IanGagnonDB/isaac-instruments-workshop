@@ -259,14 +259,8 @@
   border-top: 1px solid var(--v3-line);
 }
 
-.grade-form fieldset {
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.grade-form legend {
-  margin-bottom: 0.5rem;
+.choice-legend {
+  margin: 0 0 0.5rem;
   font-weight: 700;
 }
 
@@ -277,14 +271,21 @@
 }
 
 .severity-option,
-.edge-choice label {
+.edge-choice button {
   display: grid;
   gap: 0.15rem;
-  padding: 0.6rem 0.7rem;
+  padding: 0.6rem 0.8rem;
+  text-align: left;
+  color: var(--v3-ink);
   background: var(--v3-surface);
   border: 1px solid var(--v3-line-strong);
   border-radius: var(--v3-radius-sm);
   cursor: pointer;
+}
+
+.severity-option:hover,
+.edge-choice button:hover {
+  border-color: var(--v3-primary);
 }
 
 .severity-option span {
@@ -292,31 +293,11 @@
   font-size: var(--v3-text-xs);
 }
 
-.severity-option,
-.edge-choice label {
-  position: relative;
-}
-
-.severity-option input,
-.edge-choice input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: 0;
-  opacity: 0;
-}
-
 .severity-option.selected,
-.edge-choice label.selected {
+.edge-choice button.selected {
   background: var(--v3-primary-soft);
   border-color: var(--v3-primary);
   box-shadow: inset 0 0 0 1px var(--v3-primary);
-}
-
-.severity-option:focus-within,
-.edge-choice label:focus-within {
-  outline: 2px solid var(--v3-focus);
-  outline-offset: 2px;
 }
 
 .edge-choice {
@@ -359,4 +340,57 @@
   .severity-options {
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   }
+}
+
+.review-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
+.analysis-preview {
+  display: block;
+  width: 100%;
+  border-radius: var(--v3-radius-sm);
+}
+
+.analyze-box {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  background: var(--v3-surface-muted);
+  border: 1px solid var(--v3-line);
+  border-radius: var(--v3-radius-sm);
+}
+
+.analyze-prompt {
+  display: grid;
+  gap: 0.35rem;
+  font-size: var(--v3-text-sm);
+  font-weight: 700;
+}
+
+.analyze-prompt input {
+  font-weight: 400;
+}
+
+.analyze-box > .button-primary {
+  justify-self: start;
+}
+
+.analysis-summary {
+  margin: 0;
+  font-size: var(--v3-text-sm);
+}
+
+.analysis-narrative {
+  max-height: 220px;
+  margin-top: 0.4rem;
+  overflow: auto;
+  font-size: var(--v3-text-sm);
+}
+
+.notes-field select {
+  font-weight: 400;
 }

@@ -1,11 +1,14 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import {
   type EdgeEvent,
   type EventDetail,
   type EventSummary,
+  type OutputDetail,
   type Severity,
   getEvent,
   listEvents,
+  streamRun,
   submitReview,
 } from './api'
 import './review.css'
@@ -108,19 +111,22 @@ function SpeedTrace({ event }: { event: EdgeEvent }) {
   )
 }
 
-export function EventReviewPage({
-  onAnalyze,
-}: {
-  onAnalyze: (clip: string, prompt: string) => void
-}) {
+export function EventReviewPage() {
   const [events, setEvents] = useState<EventSummary[]>([])
   const [listError, setListError] = useState('')
   const [selectedId, setSelectedId] = useState('')
   const [detail, setDetail] = useState<EventDetail | null>(null)
   const [detailError, setDetailError] = useState('')
   const [showSegmented, setShowSegmented] = useState(false)
+  const [prompt, setPrompt] = useState('')
+  const [analysis, setAnalysis] = useState<OutputDetail | null>(null)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analysisPreview, setAnalysisPreview] = useState('')
+  const [analysisStatus, setAnalysisStatus] = useState('')
+  const [analysisError, setAnalysisError] = useState('')
   const [severity, setSeverity] = useState<Severity | null>(null)
   const [edgeCorrect, setEdgeCorrect] = useState<boolean | null>(null)
+  const [correctedType, setCorrectedType] = useState('')
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitMessage, setSubmitMessage] = useState('')
@@ -145,31 +151,87 @@ export function EventReviewPage({
     setDetailError('')
     setSeverity(null)
     setEdgeCorrect(null)
+    setCorrectedType('')
     setNotes('')
     setSubmitMessage('')
     setShowSegmented(false)
+    setAnalysis(null)
+    setAnalysisPreview('')
+    setAnalysisStatus('')
+    setAnalysisError('')
     getEvent(selectedId)
-      .then((value) => active && setDetail(value))
+      .then((value) => {
+        if (!active) return
+        setDetail(value)
+        setPrompt(value.event.suggested_prompts?.[0] ?? 'vehicle')
+      })
       .catch((error: Error) => active && setDetailError(error.message))
     return () => {
       active = false
     }
   }, [selectedId])
 
+  async function analyze() {
+    if (!detail || !prompt.trim()) return
+    setAnalyzing(true)
+    setAnalysisError('')
+    setAnalysisStatus('')
+    setAnalysisPreview('')
+    setShowSegmented(false)
+    try {
+      const result = await streamRun(
+        {
+          source_name: detail.event.clip,
+          prompt: prompt.trim(),
+          frame_stride: 15,
+          truncate: false,
+          threshold: 0.5,
+          output_fps: 8,
+          transcript_model: 'gemini',
+        },
+        (preview) => {
+          setAnalysisPreview(`data:image/jpeg;base64,${preview.preview_b64}`)
+          setAnalysisStatus(
+            `${preview.processed_frame_count} of ${preview.sampled_frame_count} frames · ${preview.matched_frame_count} matched`,
+          )
+        },
+        (status) => setAnalysisStatus(status.message),
+      )
+      setAnalysis(result)
+      setDetail((current) => (current ? { ...current, output_url: result.media_url } : current))
+      setShowSegmented(true)
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : 'SAM3 analysis failed.')
+    } finally {
+      setAnalyzing(false)
+      setAnalysisPreview('')
+    }
+  }
+
+  const misclassified = edgeCorrect === false
+  const canSubmit =
+    !!severity &&
+    edgeCorrect !== null &&
+    (!misclassified || (!!correctedType && !!notes.trim())) &&
+    !submitting
+
   async function handleSubmit(form: FormEvent) {
     form.preventDefault()
-    if (!detail || !severity || edgeCorrect === null) return
+    if (!detail || !severity || edgeCorrect === null || !canSubmit) return
     setSubmitting(true)
     setSubmitMessage('')
     try {
       const review = await submitReview(detail.event.event_id, {
         severity,
         edge_classification_correct: edgeCorrect,
+        corrected_event_type: misclassified ? correctedType : null,
         notes,
-        sam3_prompt: detail.event.suggested_prompts?.[0],
+        sam3_prompt: analysis ? prompt.trim() : null,
+        sam3_matched_frames: analysis?.matched_frame_count ?? null,
+        sam3_sampled_frames: analysis?.sampled_frame_count ?? null,
       })
-      setDetail({ ...detail, reviews: [...detail.reviews, review] })
-      setSubmitMessage(`Grade submitted by ${review.reviewer}.`)
+      setDetail({ ...detail, review_status: 'reviewed', reviews: [...detail.reviews, review] })
+      setSubmitMessage(`Saved. ${detail.event.event_id} is marked reviewed.`)
       refreshList()
     } catch (error) {
       setSubmitMessage(error instanceof Error ? error.message : 'The grade could not be saved.')
@@ -189,6 +251,7 @@ export function EventReviewPage({
   const event = detail?.event
   const latest = detail?.reviews[detail.reviews.length - 1]
   const videoUrl = showSegmented && detail?.output_url ? detail.output_url : detail?.clip_url
+  const pending = events.filter((item) => item.review_status === 'pending').length
 
   return (
     <div className="review-workspace">
@@ -198,14 +261,13 @@ export function EventReviewPage({
             <p className="section-label">Edge events</p>
             <h2 id="queue-heading">Review queue</h2>
           </div>
-          <span className="badge badge-running">
-            {events.filter((item) => item.review_status === 'pending').length} pending
-          </span>
+          <span className="badge badge-running">{pending} pending</span>
         </div>
         {listError && <p className="field-error review-pad">{listError}</p>}
         {!listError && !events.length && (
           <p className="review-pad review-muted">
-            No events yet. Run the setup job to generate the sample events.
+            No events yet. Run the setup job, or drop event JSON files into the volume and run
+            the ingest job.
           </p>
         )}
         <ul className="queue-list">
@@ -221,12 +283,13 @@ export function EventReviewPage({
                   <strong>{item.event_label || humanize(item.event_type)}</strong>
                   <span className={`queue-status queue-status-${item.review_status}`}>
                     {item.review_status === 'reviewed'
-                      ? `Graded ${humanize(item.reviewed_severity)}`
+                      ? `Reviewed · ${humanize(item.reviewed_severity)}`
                       : 'Pending'}
                   </span>
                 </span>
                 <span className="queue-meta">
                   {item.event_id} · {item.vehicle_id ?? '—'} · Edge {humanize(item.edge_severity)}
+                  {item.edge_classification_correct === false && ' · Misclassified'}
                 </span>
                 <span className="queue-meta">{formatTimestamp(item.recorded_at)}</span>
               </button>
@@ -243,7 +306,16 @@ export function EventReviewPage({
               {event ? event.event_label || humanize(event.event_type) : 'Select an event'}
             </h2>
           </div>
-          {event?.simulated && <span className="badge review-sim-badge">Simulated metadata</span>}
+          <div className="review-badges">
+            {detail && (
+              <span
+                className={`badge ${detail.review_status === 'reviewed' ? 'badge-positive' : 'badge-running'}`}
+              >
+                {detail.review_status === 'reviewed' ? 'Reviewed' : 'Pending review'}
+              </span>
+            )}
+            {event?.simulated && <span className="badge review-sim-badge">Simulated metadata</span>}
+          </div>
         </div>
 
         {detailError && <p className="field-error review-pad">{detailError}</p>}
@@ -252,49 +324,89 @@ export function EventReviewPage({
           <div className="review-body">
             <div className="review-media">
               <div className="video-frame">
-                <video controls key={videoUrl} preload="metadata" ref={videoRef}>
-                  <source src={videoUrl} />
-                </video>
+                {analyzing && analysisPreview ? (
+                  <img alt="Latest SAM3 annotated frame" className="analysis-preview" src={analysisPreview} />
+                ) : (
+                  <video controls key={videoUrl} preload="metadata" ref={videoRef}>
+                    <source src={videoUrl} />
+                  </video>
+                )}
                 <span className="video-label">
-                  {showSegmented && detail.output_url ? 'SAM3 segmented clip' : 'Edge clip'}
+                  {analyzing ? 'SAM3 analyzing' : showSegmented && detail.output_url ? 'SAM3 segmented clip' : 'Edge clip'}
                 </span>
               </div>
               <div className="review-actions">
-                <button className="button-secondary" onClick={jumpToTrigger} type="button">
+                <button className="button-secondary" disabled={analyzing} onClick={jumpToTrigger} type="button">
                   Jump to trigger
                 </button>
                 <button
                   className="button-secondary"
-                  disabled={!detail.output_url}
+                  disabled={!detail.output_url || analyzing}
                   onClick={() => setShowSegmented((value) => !value)}
                   title={detail.output_url ? '' : 'Run SAM3 on this clip first'}
                   type="button"
                 >
                   {showSegmented ? 'Show edge clip' : 'Show SAM3 result'}
                 </button>
+              </div>
+
+              <div className="analyze-box">
+                <label className="analyze-prompt">
+                  <span>SAM3 prompt for this clip</span>
+                  <input
+                    disabled={analyzing}
+                    maxLength={200}
+                    onChange={(change) => setPrompt(change.target.value)}
+                    value={prompt}
+                  />
+                </label>
                 <button
                   className="button-primary"
-                  onClick={() => onAnalyze(event.clip, event.suggested_prompts?.[0] ?? 'vehicle')}
+                  disabled={analyzing || !prompt.trim()}
+                  onClick={() => void analyze()}
                   type="button"
                 >
-                  Analyze with SAM3
+                  {analyzing ? 'Analyzing…' : 'Analyze with SAM3'}
                 </button>
+                {event.suggested_prompts?.length ? (
+                  <p className="review-muted review-prompts">
+                    Suggested:{' '}
+                    {event.suggested_prompts.map((suggestion) => (
+                      <button
+                        className="prompt-chip"
+                        disabled={analyzing}
+                        key={suggestion}
+                        onClick={() => setPrompt(suggestion)}
+                        type="button"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </p>
+                ) : null}
+                {analyzing && (
+                  <p className="review-muted" aria-live="polite">
+                    {analysisStatus || 'Starting SAM3 on the GPU endpoint…'}
+                  </p>
+                )}
+                {analysisError && <p className="field-error">{analysisError}</p>}
+                {analysis && !analyzing && (
+                  <div className="analysis-result">
+                    <p className="analysis-summary">
+                      <strong>
+                        “{prompt.trim()}” found in {analysis.matched_frame_count ?? 0} of{' '}
+                        {analysis.sampled_frame_count ?? 0} sampled frames
+                      </strong>
+                      {analysis.elapsed_seconds !== undefined && ` · ${analysis.elapsed_seconds}s`}
+                    </p>
+                    {(analysis.description || analysis.description_error) && (
+                      <div className="description-markdown analysis-narrative">
+                        <ReactMarkdown>{analysis.description || analysis.description_error || ''}</ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              {event.suggested_prompts?.length ? (
-                <p className="review-muted review-prompts">
-                  Suggested prompts:{' '}
-                  {event.suggested_prompts.map((prompt) => (
-                    <button
-                      className="prompt-chip"
-                      key={prompt}
-                      onClick={() => onAnalyze(event.clip, prompt)}
-                      type="button"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </p>
-              ) : null}
             </div>
 
             <div className="review-facts">
@@ -368,62 +480,84 @@ export function EventReviewPage({
             </div>
 
             <form className="grade-form" onSubmit={handleSubmit}>
-              <fieldset>
-                <legend>Severity grade</legend>
+              <div className="choice-group" role="radiogroup" aria-labelledby="severity-label">
+                <p className="choice-legend" id="severity-label">
+                  Severity grade
+                </p>
                 <div className="severity-options">
                   {SEVERITIES.map((option) => (
-                    <label
+                    <button
+                      aria-checked={severity === option.value}
                       className={`severity-option ${severity === option.value ? 'selected' : ''}`}
                       key={option.value}
+                      onClick={() => setSeverity(option.value)}
+                      role="radio"
+                      type="button"
                     >
-                      <input
-                        checked={severity === option.value}
-                        name="severity"
-                        onChange={() => setSeverity(option.value)}
-                        type="radio"
-                        value={option.value}
-                      />
                       <strong>{option.label}</strong>
                       <span>{option.hint}</span>
-                    </label>
+                    </button>
                   ))}
                 </div>
-              </fieldset>
-              <fieldset>
-                <legend>Was the edge classification correct?</legend>
+              </div>
+              <div className="choice-group" role="radiogroup" aria-labelledby="edge-label">
+                <p className="choice-legend" id="edge-label">
+                  Was the edge classification ({humanize(event.event_type)}) correct?
+                </p>
                 <div className="edge-choice">
                   {([
-                    [true, 'Yes'],
+                    [true, 'Yes, correct'],
                     [false, 'No, misclassified'],
                   ] as const).map(([value, label]) => (
-                    <label className={edgeCorrect === value ? 'selected' : ''} key={label}>
-                      <input
-                        checked={edgeCorrect === value}
-                        name="edge-correct"
-                        onChange={() => setEdgeCorrect(value)}
-                        type="radio"
-                      />
+                    <button
+                      aria-checked={edgeCorrect === value}
+                      className={edgeCorrect === value ? 'selected' : ''}
+                      key={label}
+                      onClick={() => setEdgeCorrect(value)}
+                      role="radio"
+                      type="button"
+                    >
                       {label}
-                    </label>
+                    </button>
                   ))}
                 </div>
-              </fieldset>
+              </div>
+              {misclassified && (
+                <label className="notes-field">
+                  <span>What was it actually?</span>
+                  <select
+                    onChange={(change) => setCorrectedType(change.target.value)}
+                    value={correctedType}
+                  >
+                    <option value="">Choose the correct event type</option>
+                    {detail.event_types
+                      .filter((type) => type !== event.event_type)
+                      .map((type) => (
+                        <option key={type} value={type}>
+                          {humanize(type)}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
               <label className="notes-field">
-                <span>Reviewer notes</span>
+                <span>
+                  {misclassified ? 'Misclassification note (required)' : 'Reviewer notes'}
+                </span>
                 <textarea
                   maxLength={2000}
                   onChange={(change) => setNotes(change.target.value)}
-                  placeholder="What happened, and what should the driver hear?"
+                  placeholder={
+                    misclassified
+                      ? 'What did the edge get wrong, and what was really happening?'
+                      : 'What happened, and what should the driver hear?'
+                  }
                   rows={3}
                   value={notes}
                 />
               </label>
               <div className="grade-submit">
-                <button
-                  className="button-primary"
-                  disabled={!severity || edgeCorrect === null || submitting}
-                  type="submit"
-                >
+                <button className="button-primary" disabled={!canSubmit} type="submit">
                   {submitting ? 'Submitting…' : 'Submit grade'}
                 </button>
                 {submitMessage && (
@@ -434,8 +568,10 @@ export function EventReviewPage({
               </div>
               {latest && (
                 <p className="review-muted">
-                  Last grade: <strong>{humanize(latest.severity)}</strong> by {latest.reviewer},{' '}
-                  {formatTimestamp(latest.submitted_at)} ({detail.reviews.length} total)
+                  Last grade: <strong>{humanize(latest.severity)}</strong>
+                  {latest.edge_classification_correct === false &&
+                    ` · misclassified as ${humanize(event.event_type)}, actually ${humanize(latest.corrected_event_type)}`}{' '}
+                  by {latest.reviewer}, {formatTimestamp(latest.submitted_at)} ({detail.reviews.length} total)
                 </p>
               )}
             </form>

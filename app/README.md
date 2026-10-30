@@ -5,14 +5,16 @@ A Databricks App that finds anything you can describe in a video. Upload a clip 
 - an MP4 with segmentation masks drawn on every match, with live previews while it runs
 - a written narrative of what happened, from a vision-language model
 
-It also has an **Event Review** tab that mirrors a fleet-safety workflow: the edge device flags an event and uploads a short clip plus JSON metadata, and a reviewer in the cloud watches the clip, checks the edge detections and speed trace, optionally runs SAM3 on it, then submits a severity grade.
+The app opens on a **Review queue** that mirrors a fleet-safety workflow: the edge device flags an event and uploads a short clip plus JSON metadata; a reviewer in the cloud watches the clip, checks the edge detections and speed trace, optionally runs SAM3 on it right there, then submits a severity grade. Grades land in Delta tables and an AI/BI dashboard tracks where the edge misclassifies. A **Free search** tab keeps the open-ended "find anything in any video" demo.
 
 | Part | What it does | Where it runs |
 |---|---|---|
 | App (`src/`) | UI, frame sampling, overlays, MP4 encoding | Databricks Apps (CPU) |
 | SAM3 (`facebook/sam3`) | Finds and outlines objects that match the text prompt. No training needed. | Model Serving GPU endpoint |
 | Narrative model | Describes up to 24 matched frames in plain language | Foundation Model APIs (pay-per-token) |
-| Volume | `inputs/`, `outputs/`, `descriptions/`, `events/`, `reviews/`, `model_checkpoints/` | Unity Catalog |
+| Volume | `inputs/`, `outputs/`, `descriptions/`, `events/`, `model_checkpoints/` | Unity Catalog |
+| Delta tables | `edge_events` (queue and review status), `event_reviews` (grade history) | Unity Catalog, via a serverless SQL warehouse |
+| AI/BI dashboard | Edge classification quality | Databricks SQL |
 
 Everything deploys with a Databricks Asset Bundle. No GPU cluster is needed: the only GPU sits behind Model Serving.
 
@@ -53,7 +55,7 @@ Work through this list before you deploy. Most failures come from a missed step 
 
   The defaults are `databricks-gemini-3-8-flash` and `databricks-gpt-5-6-luna`. If either is missing, set `fmapi_model` / `luna_model` to models you do have (deploy fails if a named endpoint does not exist).
 - **Outbound internet to `huggingface.co`** from serverless compute, for the one-time model and sample download. If your workspace has a serverless network policy, allow this host.
-- Permissions for the person deploying: `USE CATALOG` and `USE SCHEMA`, `CREATE MODEL` and `CREATE VOLUME` on the schema (or an existing volume with `WRITE VOLUME`), permission to create serving endpoints, apps, jobs and secret scopes.
+- Permissions for the person deploying: `USE CATALOG` and `USE SCHEMA`, `CREATE MODEL`, `CREATE TABLE` and `CREATE VOLUME` on the schema (or an existing volume with `WRITE VOLUME`), permission to create serving endpoints, apps, jobs, dashboards, secret scopes and a **serverless SQL warehouse** (the bundle creates a 2X-Small one that auto-stops after 10 idle minutes).
 - A recent [Databricks CLI](https://docs.databricks.com/dev-tools/cli/install.html), authenticated to the workspace (tested with v1.17.0):
 
   ```bash
@@ -107,7 +109,7 @@ To avoid repeating the variables, put them in `.databricks/bundle/dev/variable-o
 { "catalog": "<catalog>", "schema": "<schema>", "gpu_workload_type": "GPU_SMALL" }
 ```
 
-This creates the app (not started yet) and four jobs. The SAM3 endpoint does not exist yet; the setup job creates it.
+This creates the app (not started yet), five jobs, a serverless SQL warehouse and the AI/BI dashboard. The SAM3 endpoint and the Delta tables do not exist yet; the setup job creates them.
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -133,6 +135,7 @@ It runs three tasks:
 2. `deploy_endpoint`: creates the SAM3 GPU endpoint and grants the app's service principal `CAN_QUERY` on it. Building the serving container is the slow part, usually 20 to 40 minutes.
 3. `fetch_sample_clips`: copies 30 Nexar dashcam clips (15 collision or near-miss, 15 normal driving) into `<volume>/inputs/`, and the dataset licence and Nexar's per-clip labels into `<volume>/datasets/nexar/`.
 4. `generate_sample_events`: writes seven simulated edge events to `<volume>/events/` (see [Event Review](#event-review)).
+5. `load_events`: creates the `edge_events` and `event_reviews` Delta tables, loads the event JSON into `edge_events` as `pending`, and grants the app `SELECT`/`MODIFY` on both.
 
 Plan for 30 to 60 minutes in total. Rerunning is safe: the checkpoint is reused and the endpoint is updated in place.
 
@@ -160,9 +163,14 @@ SAM3 finds things; it does not judge them. Prompts like "dangerous situation" do
 
 ## Event Review
 
-The **Event Review** tab lists edge events from `<volume>/events/*.json`, newest first, with their review status.
+The **Review queue** tab (the app's home page) lists edge events from the `edge_events` table, pending first, with their review status.
 
-For each event the reviewer sees the edge clip (with a "jump to trigger" button), the edge device's detections and severity estimate, a speed trace with the trigger time marked, and Nexar's own label for the clip. **Analyze with SAM3** opens the Live Demo with the clip and a suggested prompt filled in, so the reviewer can check what the edge saw. The reviewer then picks a severity (None, Low, Medium, High, Critical), says whether the edge classification was correct, adds notes and submits.
+For each event the reviewer sees the edge clip (with **Jump to trigger**), the edge device's detections and severity estimate, a speed trace with the trigger marked, and Nexar's own label for the clip. **Analyze with SAM3** runs SAM3 on that clip in place, using an editable prompt pre-filled from the event (suggested prompts are one click). Live annotated frames stream in, then the segmented clip and the narrative appear next to the grading form.
+
+The reviewer then picks a severity (None, Low, Medium, High, Critical) and says whether the edge classification was correct. **No, misclassified** asks what the event actually was (from a fixed list of event types) and requires a note. On submit:
+
+- a row is appended to **`event_reviews`** (edge type and severity, reviewer severity, correct or not, corrected type, notes, the SAM3 prompt and frame counts, reviewer email from the Databricks Apps identity headers, timestamp), and
+- the event's row in **`edge_events`** is marked `review_status = 'reviewed'` with the latest severity, correction, reviewer and time. Regrading appends another history row and updates the status.
 
 The seven sample events are **simulated** (IDs, speeds, detections and severities are invented for the workshop, and each JSON says so). Their clips and trigger times line up with what happens in the footage:
 
@@ -174,18 +182,15 @@ The seven sample events are **simulated** (IDs, speeds, detections and severitie
 | EVT-0104 | `nexar_positive_00003` | Harsh braking at night in rain |
 | EVT-0105 | `nexar_positive_00008` | Pedestrian crossing at a night intersection |
 | EVT-0106 | `nexar_positive_00000` | Van cut in from the left |
-| EVT-0107 | `nexar_negative_01043` | "Harsh acceleration" that is really normal driving (an edge false positive to grade as None) |
+| EVT-0107 | `nexar_negative_01043` | "Harsh acceleration" that is really normal driving (an edge false positive to grade as misclassified, actually no event) |
 
-**Storage.** Each submission is one immutable JSON file at `<volume>/reviews/<event_id>/<UTC timestamp>.json` with the severity, the edge-correct flag, notes, the SAM3 prompt and the reviewer (the signed-in user's email, forwarded by Databricks Apps). The latest file is the current grade; older files are the history. To analyze grades or use them as training labels, load the folder into a Delta table, for example with Auto Loader:
+### Dashboard
 
-```python
-spark.readStream.format("cloudFiles").option("cloudFiles.format", "json") \
-  .load("<volume>/reviews/") \
-  .writeStream.option("checkpointLocation", "<volume>/_checkpoints/reviews") \
-  .trigger(availableNow=True).toTable("<catalog>.<schema>.event_reviews")
-```
+The bundle deploys an AI/BI dashboard, **Edge event review quality**, on the same warehouse: edge events, reviewed and misclassified counts, misclassification rate, misclassified events by edge event type, an "edge said vs reviewer said" table, every misclassified event with the reviewer's note, and edge vs reviewer severity. It reads `edge_events` and `event_reviews` in the bundle's catalog and schema.
 
-**Bring your own events.** Drop a clip in `inputs/` and a JSON with the same fields in `events/` (`event_id`, `clip`, `event_type`, `edge_detections`, `telemetry.speed_kmh`, `trigger.time_s`, and so on). See `notebooks/generate_sample_events.py` for the full shape.
+### Bring your own events
+
+Drop a clip into `<volume>/inputs/` and an event JSON into `<volume>/events/` with the same fields (`event_id`, `clip`, `event_type`, `edge_detections`, `telemetry.speed_kmh`, `trigger.time_s`, and so on; see `notebooks/generate_sample_events.py`). The **`sam3-ingest-edge-events`** job has a file-arrival trigger on that folder and loads new events into `edge_events` as `pending` (existing rows and their review status are never overwritten). Development-mode deploys leave triggers paused: unpause the job in the Jobs UI, or run it by hand.
 
 ---
 
@@ -211,11 +216,13 @@ databricks bundle deploy -t preview -p <profile> --var ...
 databricks bundle run -t preview sam3_video_app -p <profile> --var ...
 ```
 
-Then grant the new app access to the existing endpoint (or run its `update_endpoint` job, which also updates the endpoint's configuration):
+Then grant the new app access to the existing endpoint (or run its `update_endpoint` job, which also updates the endpoint's configuration), and run only the table step of its setup job so the new app gets access to the Delta tables:
 
 ```bash
 databricks serving-endpoints update-permissions <endpoint-id> -p <profile> \
   --json '{"access_control_list":[{"service_principal_name":"<app service principal client id>","permission_level":"CAN_QUERY"}]}'
+
+databricks jobs run-now -p <profile> --json '{"job_id": <preview setup job id>, "only": ["load_events"]}'
 ```
 
 ## Optional batch jobs
@@ -226,9 +233,11 @@ databricks serving-endpoints update-permissions <endpoint-id> -p <profile> \
 ## Tear down
 
 ```bash
-databricks bundle destroy -p <profile>                              # app and jobs
+databricks bundle destroy -p <profile>                              # app, jobs, warehouse, dashboard
 databricks serving-endpoints delete sam3-video-frames -p <profile>   # created by the setup job, not the bundle
 databricks registered-models delete <catalog>.<schema>.transformers-sam3-frames-v2 -p <profile>
+databricks tables delete <catalog>.<schema>.edge_events -p <profile>
+databricks tables delete <catalog>.<schema>.event_reviews -p <profile>
 databricks secrets delete-scope sam3-video-app -p <profile>
 ```
 
@@ -244,14 +253,17 @@ Then delete the volume contents if you no longer need them. Revoke the Hugging F
 | `deploy_endpoint` fails on the workload type | Use `GPU_SMALL` or `GPU_LARGE` on Azure. |
 | App says the live SAM3 endpoint is not configured, or requests fail with 403 | Run the setup job (or `update_endpoint`) after deploying, so the app's service principal gets `CAN_QUERY`. |
 | First request is very slow | Scale-to-zero is on and the endpoint is cold. |
-| Event Review says "No events yet" | Run the setup job (the `generate_sample_events` task), or add your own JSON files to `<volume>/events/`. |
+| Review queue says "No events yet" | Run the setup job (the `generate_sample_events` and `load_events` tasks), or add JSON files to `<volume>/events/` and run `sam3-ingest-edge-events`. |
+| Review queue says the review tables could not be queried | The `load_events` task has not run yet, or the app lacks `SELECT`/`MODIFY` on the tables. Rerun `load_events`. |
+| A first queue load takes 10 to 20 seconds | The serverless SQL warehouse was stopped and is starting. |
 | Download fails or hangs | Serverless egress to `huggingface.co` is blocked. |
 
 ## Layout
 
 ```
 app/
-  databricks.yml          bundle: app, setup, update_endpoint, batch jobs
+  databricks.yml          bundle: app, warehouse, dashboard, setup, ingest, update_endpoint, batch jobs
+  dashboards/             AI/BI dashboard definition
   src/                    app source deployed to Databricks Apps
     app.py                Starlette API and static server
     live_segment.py       SAM3 calls, overlays, MP4 encoding

@@ -37,11 +37,32 @@ variables:
   sample_clips_per_class:
     description: Nexar sample clips per class (collision/near-miss and normal driving).
     default: "15"
+  warehouse_size:
+    description: Size of the serverless SQL warehouse the app and dashboard use.
+    default: 2X-Small
   volume_path:
     description: Derived Volume path. Do not override.
     default: /Volumes/${var.catalog}/${var.schema}/${var.volume}
 
 resources:
+  sql_warehouses:
+    review_warehouse:
+      name: sam3-review-warehouse
+      cluster_size: ${var.warehouse_size}
+      warehouse_type: PRO
+      enable_serverless_compute: true
+      auto_stop_mins: 10
+      min_num_clusters: 1
+      max_num_clusters: 1
+
+  dashboards:
+    edge_review_dashboard:
+      display_name: Edge event review quality
+      file_path: ./dashboards/edge_review.lvdash.json
+      warehouse_id: ${resources.sql_warehouses.review_warehouse.id}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema}
+
   apps:
     sam3_video_app:
       name: ${var.app_name}
@@ -61,7 +82,17 @@ resources:
             value_from: gemini-transcript-endpoint
           - name: AUTO_SEGMENT_VOLUME_PATH
             value: ${var.volume_path}
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: EVENTS_TABLE
+            value: ${var.catalog}.${var.schema}.edge_events
+          - name: REVIEWS_TABLE
+            value: ${var.catalog}.${var.schema}.event_reviews
       resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${resources.sql_warehouses.review_warehouse.id}
+            permission: CAN_USE
         - name: visual-transcript-endpoint
           serving_endpoint:
             name: ${var.luna_model}
@@ -130,6 +161,18 @@ resources:
             base_parameters:
               volume_root: ${var.volume_path}
             source: WORKSPACE
+        - task_key: load_events
+          depends_on:
+            - task_key: generate_sample_events
+          environment_key: samples
+          notebook_task:
+            notebook_path: ./notebooks/load_events_to_delta.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              volume_root: ${var.volume_path}
+              app_name: ${resources.apps.sam3_video_app.name}
+            source: WORKSPACE
       environments:
         - environment_key: default
           spec:
@@ -145,7 +188,34 @@ resources:
           spec:
             client: "4"
             dependencies:
+              - databricks-sdk==0.44.1
               - huggingface-hub
+
+    ingest_events:
+      name: sam3-ingest-edge-events
+      max_concurrent_runs: 1
+      # Runs when new event JSON lands in <volume>/events/. Development mode deploys
+      # triggers paused; unpause it in the Jobs UI or deploy with a production target.
+      trigger:
+        file_arrival:
+          url: ${var.volume_path}/events/
+      tasks:
+        - task_key: load_events
+          environment_key: default
+          notebook_task:
+            notebook_path: ./notebooks/load_events_to_delta.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              volume_root: ${var.volume_path}
+              app_name: ${resources.apps.sam3_video_app.name}
+            source: WORKSPACE
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+            dependencies:
+              - databricks-sdk==0.44.1
 
     update_endpoint:
       name: sam3-app-update-endpoint

@@ -319,6 +319,7 @@ async def test_browser_telemetry_is_validated_and_logged(client, caplog):
     assert event["client_fields"]["duration_ms"] == 1234
 
 
+
 SAMPLE_EVENT = {
     "event_id": "EVT-0001",
     "event_type": "stop_sign_violation",
@@ -337,72 +338,115 @@ def test_event_ids_reject_paths():
             app_module.safe_event_id(invalid)
 
 
+def test_table_names_are_quoted_and_validated():
+    assert app_module.quoted_table("cat.sch.edge_events") == "`cat`.`sch`.`edge_events`"
+    for invalid in ("edge_events", "a.b.c; DROP TABLE x", "a.b.`c`"):
+        with pytest.raises(HTTPException):
+            app_module.quoted_table(invalid)
+
+
 @pytest.mark.anyio
-async def test_event_list_marks_pending_and_reviewed(client, monkeypatch):
-    monkeypatch.setattr(
-        app_module,
-        "call_sdk",
-        AsyncMock(return_value=[SimpleNamespace(name="EVT-0001.json", is_directory=False)]),
+async def test_event_list_reads_review_status_from_delta(client, monkeypatch):
+    run_sql = Mock(
+        return_value=[
+            {**SAMPLE_EVENT, "review_status": "reviewed", "reviewed_severity": "high",
+             "edge_classification_correct": "false"},
+        ]
     )
-    monkeypatch.setattr(app_module, "read_json", AsyncMock(return_value=SAMPLE_EVENT))
-    monkeypatch.setattr(
-        app_module,
-        "list_reviews",
-        AsyncMock(return_value=[{"severity": "high"}]),
-    )
+    monkeypatch.setattr(app_module, "run_sql", run_sql)
 
     response = await client.get("/api/events")
 
     assert response.status_code == 200
     [item] = response.json()["items"]
-    assert item["event_id"] == "EVT-0001"
     assert item["review_status"] == "reviewed"
-    assert item["reviewed_severity"] == "high"
+    assert item["edge_classification_correct"] is False
+    assert "edge_events" in run_sql.call_args.args[0]
 
 
 @pytest.mark.anyio
-async def test_event_detail_links_source_and_segmented_clip(client, fake_client, monkeypatch):
-    monkeypatch.setattr(app_module, "read_json", AsyncMock(return_value=SAMPLE_EVENT))
-    monkeypatch.setattr(app_module, "list_reviews", AsyncMock(return_value=[]))
+async def test_event_detail_returns_payload_reviews_and_event_types(client, fake_client, monkeypatch):
+    def fake_sql(statement, parameters=None):
+        assert parameters == {"event_id": "EVT-0001"}
+        if "payload" in statement:
+            return [{"payload": json.dumps(SAMPLE_EVENT), "review_status": "pending"}]
+        return []
+
+    monkeypatch.setattr(app_module, "run_sql", fake_sql)
 
     response = await client.get("/api/events/EVT-0001")
 
     assert response.status_code == 200
     body = response.json()
+    assert body["event"]["clip"] == "nexar_negative_01041.mp4"
     assert body["clip_url"] == "/api/source-media/nexar_negative_01041.mp4"
     assert body["output_url"] == "/api/media/nexar_negative_01041.mp4"
-    assert body["reviews"] == []
+    assert "no_event" in body["event_types"]
 
 
 @pytest.mark.anyio
-async def test_review_is_written_with_the_signed_in_reviewer(client, fake_client):
+async def test_review_inserts_history_and_marks_event_reviewed(client, monkeypatch):
+    calls = []
+
+    def fake_sql(statement, parameters=None):
+        calls.append((statement, parameters))
+        if statement.lstrip().startswith("SELECT"):
+            return [{"event_type": "harsh_acceleration", "edge_severity": "low"}]
+        return []
+
+    monkeypatch.setattr(app_module, "run_sql", fake_sql)
+
     response = await client.post(
         "/api/events/EVT-0001/reviews",
         headers={"X-Forwarded-Email": "reviewer@example.com"},
         json={
-            "severity": "High",
-            "edge_classification_correct": True,
-            "notes": "Did not stop.",
-            "sam3_prompt": "stop sign",
+            "severity": "None",
+            "edge_classification_correct": False,
+            "corrected_event_type": "no_event",
+            "notes": "Normal merge.",
+            "sam3_prompt": "vehicle",
+            "sam3_matched_frames": 40,
+            "sam3_sampled_frames": 41,
         },
     )
 
     assert response.status_code == 201
-    review = response.json()
-    assert review["severity"] == "high"
-    assert review["reviewer"] == "reviewer@example.com"
-    text, destination = app_module.upload_text.call_args.args
-    assert destination.startswith(f"{app_module.REVIEWS_DIR}/EVT-0001/")
-    assert json.loads(text)["notes"] == "Did not stop."
+    assert response.json()["reviewer"] == "reviewer@example.com"
+    insert, update = calls[1], calls[2]
+    assert "INSERT INTO" in insert[0] and "event_reviews" in insert[0]
+    assert insert[1]["edge_event_type"] == "harsh_acceleration"
+    assert insert[1]["corrected"] == "no_event"
+    assert insert[1]["edge_correct"] is False
+    assert "UPDATE" in update[0] and "review_status = 'reviewed'" in update[0]
 
 
 @pytest.mark.anyio
-async def test_review_rejects_unknown_severity(client, fake_client):
-    response = await client.post(
-        "/api/events/EVT-0001/reviews",
-        json={"severity": "extreme", "edge_classification_correct": True},
-    )
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ({"severity": "extreme", "edge_classification_correct": True}, "Severity must be one of"),
+        ({"severity": "low", "edge_classification_correct": False, "notes": "x"},
+         "Choose what the event actually was"),
+        ({"severity": "low", "edge_classification_correct": False,
+          "corrected_event_type": "no_event"}, "Add a note"),
+    ],
+)
+async def test_review_validation(client, monkeypatch, body, message):
+    run_sql = Mock()
+    monkeypatch.setattr(app_module, "run_sql", run_sql)
+
+    response = await client.post("/api/events/EVT-0001/reviews", json=body)
 
     assert response.status_code == 400
-    assert "Severity must be one of" in response.json()["error"]["message"]
-    app_module.upload_text.assert_not_called()
+    assert message in response.json()["error"]["message"]
+    run_sql.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_index_html_is_not_cached(client, tmp_path, monkeypatch):
+    (tmp_path / "index.html").write_text("<html></html>")
+    monkeypatch.setattr(app_module, "STATIC_DIR", tmp_path)
+
+    response = await client.get("/")
+
+    assert response.headers["cache-control"] == "no-cache"

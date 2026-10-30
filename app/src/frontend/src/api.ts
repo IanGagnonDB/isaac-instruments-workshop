@@ -361,26 +361,33 @@ export interface EventSummary {
   edge_severity?: Severity
   review_status: 'pending' | 'reviewed'
   reviewed_severity: Severity | null
+  edge_classification_correct?: boolean | null
+  reviewed_by?: string | null
 }
 
 export interface EventReview {
   event_id: string
   severity: Severity
   edge_classification_correct: boolean
+  corrected_event_type: string | null
   notes: string
   sam3_prompt: string | null
+  sam3_matched_frames: number | null
+  sam3_sampled_frames: number | null
   reviewer: string
   submitted_at: string
 }
 
 export interface EventDetail {
   event: EdgeEvent
+  review_status: 'pending' | 'reviewed'
   clip_url: string
   output_url: string | null
   reviews: EventReview[]
+  event_types: string[]
 }
 
-export function listEvents(): Promise<{ items: EventSummary[]; root: string }> {
+export function listEvents(): Promise<{ items: EventSummary[]; table: string }> {
   return apiFetch('/api/events')
 }
 
@@ -393,8 +400,11 @@ export function submitReview(
   review: {
     severity: Severity
     edge_classification_correct: boolean
+    corrected_event_type?: string | null
     notes: string
-    sam3_prompt?: string
+    sam3_prompt?: string | null
+    sam3_matched_frames?: number | null
+    sam3_sampled_frames?: number | null
   },
 ): Promise<EventReview> {
   return apiFetch(`/api/events/${encodeURIComponent(eventId)}/reviews`, {

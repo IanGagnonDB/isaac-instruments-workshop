@@ -303,7 +303,7 @@ function App() {
   const [outputOptions, setOutputOptions] = useState<VideoFile[]>([])
   const [outputPickerOpen, setOutputPickerOpen] = useState(false)
   const [experienceSection, setExperienceSection] =
-    useState<ExperienceSection>('demo')
+    useState<ExperienceSection>('review')
   const [characteristicSlide, setCharacteristicSlide] = useState(0)
   const [mobileView, setMobileView] = useState<'setup' | 'result'>('setup')
   const [prompt, setPrompt] = useState('')
@@ -519,16 +519,6 @@ function App() {
     }
   }
 
-  function analyzeEventClip(clip: string, eventPrompt: string) {
-    dispatch({ type: 'reset' })
-    setSourceMode('volume')
-    chooseSource(clip)
-    setPrompt(eventPrompt)
-    setTruncate(false)
-    setExperienceSection('demo')
-    setMobileView('setup')
-  }
-
   function reset() {
     dispatch({ type: 'reset' })
     setSourceQuery('')
@@ -618,9 +608,9 @@ function App() {
   )
   const sectionHeading =
     experienceSection === 'demo'
-      ? ['Governed video analysis', 'Find objects in video']
+      ? ['Ad-hoc search', 'Find objects in any video']
       : experienceSection === 'review'
-        ? ['Edge events', 'Grade event severity']
+        ? ['Edge events', 'Review and grade events']
         : experienceSection === 'architecture'
         ? ['Solution blueprint', 'Architecture']
         : ['Platform story', 'Key characteristics']
@@ -647,14 +637,11 @@ function App() {
         </div>
         <button
           className="button-tertiary intro-button"
-          aria-current={experienceSection === 'demo' ? 'page' : undefined}
-          onClick={() => {
-            setExperienceSection('demo')
-            setMobileView('setup')
-          }}
+          aria-current={experienceSection === 'review' ? 'page' : undefined}
+          onClick={() => setExperienceSection('review')}
           type="button"
         >
-          Live Demo
+          Review queue
         </button>
       </header>
 
@@ -670,8 +657,8 @@ function App() {
           <nav className="stepper" aria-label="Experience sections">
             {(
               [
-                ['demo', 'Live Demo'],
-                ['review', 'Event Review'],
+                ['review', 'Review queue'],
+                ['demo', 'Free search'],
                 ['architecture', 'Architecture'],
                 ['characteristics', 'Key Characteristics'],
               ] as const
@@ -702,7 +689,7 @@ function App() {
           }
         >
           {experienceSection === 'review' ? (
-            <EventReviewPage onAnalyze={analyzeEventClip} />
+            <EventReviewPage />
           ) : experienceSection === 'architecture' ? (
             <PresentationStage>
               <ArchitecturePage />

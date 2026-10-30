@@ -50,8 +50,9 @@ AUTO_SEGMENT_VOLUME_PATH = os.getenv(
 INPUTS_DIR = f"{AUTO_SEGMENT_VOLUME_PATH}/inputs"
 OUTPUTS_DIR = f"{AUTO_SEGMENT_VOLUME_PATH}/outputs"
 DESCRIPTIONS_DIR = f"{AUTO_SEGMENT_VOLUME_PATH}/descriptions"
-EVENTS_DIR = f"{AUTO_SEGMENT_VOLUME_PATH}/events"
-REVIEWS_DIR = f"{AUTO_SEGMENT_VOLUME_PATH}/reviews"
+EVENTS_TABLE = os.getenv("EVENTS_TABLE", "main.video.edge_events")
+REVIEWS_TABLE = os.getenv("REVIEWS_TABLE", "main.video.event_reviews")
+TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
 STATIC_DIR = Path(__file__).parent / "static"
 
 VIDEO_EXTENSIONS = {
@@ -82,6 +83,21 @@ EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 SEVERITY_LEVELS = ("none", "low", "medium", "high", "critical")
 MAX_REVIEW_NOTES = 2_000
 MAX_LISTED_EVENTS = 200
+EVENT_TYPES = (
+    "stop_sign_violation",
+    "door_opening_hazard",
+    "following_too_close",
+    "harsh_braking",
+    "harsh_acceleration",
+    "pedestrian_conflict",
+    "unsafe_cut_in",
+    "lane_departure",
+    "speeding",
+    "near_miss",
+    "collision",
+    "no_event",
+    "other",
+)
 CLIENT_EVENT_PATTERN = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 CLIENT_FIELD_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
@@ -781,87 +797,154 @@ def reviewer_identity(request: Request) -> str:
     return "unknown"
 
 
-async def read_json(path: str) -> dict[str, Any] | None:
-    text = await download_text(path)
-    if text is None:
-        return None
-    try:
-        value = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    return value if isinstance(value, dict) else None
+def quoted_table(name: str) -> str:
+    if not TABLE_NAME_PATTERN.fullmatch(name):
+        raise HTTPException(500, "The review tables are not configured.")
+    return ".".join(f"`{part}`" for part in name.split("."))
 
 
-async def list_reviews(event_id: str) -> list[dict[str, Any]]:
-    try:
-        items = await call_sdk(list_directory, f"{REVIEWS_DIR}/{event_id}")
-    except NotFound:
-        return []
-    names = sorted(
-        entry.name
-        for entry in items
-        if entry.name and not entry.is_directory and entry.name.endswith(".json")
+def warehouse_id() -> str:
+    value = os.getenv("DATABRICKS_WAREHOUSE_ID", "").strip()
+    if not value:
+        raise HTTPException(503, "The SQL warehouse is not configured.")
+    return value
+
+
+def run_sql(statement: str, parameters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Run one parameterized statement on the app's warehouse and return rows as dicts."""
+    from databricks.sdk.service.sql import StatementParameterListItem, StatementState
+
+    client = get_workspace_client()
+    response = client.statement_execution.execute_statement(
+        statement=statement,
+        warehouse_id=warehouse_id(),
+        parameters=[
+            StatementParameterListItem(
+                name=name,
+                value=None if value is None else str(value),
+                type=(
+                    "BOOLEAN"
+                    if isinstance(value, bool)
+                    else "INT" if isinstance(value, int) else "STRING"
+                ),
+            )
+            for name, value in (parameters or {}).items()
+        ],
+        wait_timeout="30s",
     )
-    reviews = [await read_json(f"{REVIEWS_DIR}/{event_id}/{name}") for name in names]
-    return [review for review in reviews if review]
+    # A cold serverless warehouse can take longer than the synchronous wait.
+    deadline = time.monotonic() + 120
+    while response.status and response.status.state in (
+        StatementState.PENDING,
+        StatementState.RUNNING,
+    ):
+        if time.monotonic() > deadline:
+            raise HTTPException(504, "The SQL warehouse did not respond in time.")
+        time.sleep(1)
+        response = client.statement_execution.get_statement(response.statement_id)
+    if not response.status or response.status.state != StatementState.SUCCEEDED:
+        message = response.status.error.message if response.status and response.status.error else ""
+        logger.error("sql_statement_failed %s", message)
+        raise HTTPException(502, "The review tables could not be queried.")
+    if not response.manifest or not response.result or not response.result.data_array:
+        return []
+    columns = [column.name for column in response.manifest.schema.columns]
+    return [dict(zip(columns, row)) for row in response.result.data_array]
 
 
-def event_summary(event: dict[str, Any], latest_review: dict[str, Any] | None) -> dict[str, Any]:
+def as_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    return str(value).lower() == "true"
+
+
+def as_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def review_record(row: dict[str, Any]) -> dict[str, Any]:
     return {
-        "event_id": event.get("event_id"),
-        "event_type": event.get("event_type"),
-        "event_label": event.get("event_label"),
-        "clip": event.get("clip"),
-        "vehicle_id": event.get("vehicle_id"),
-        "recorded_at": event.get("recorded_at"),
-        "edge_severity": event.get("edge_severity"),
-        "review_status": "reviewed" if latest_review else "pending",
-        "reviewed_severity": latest_review.get("severity") if latest_review else None,
+        "event_id": row.get("event_id"),
+        "severity": row.get("severity"),
+        "edge_classification_correct": as_bool(row.get("edge_classification_correct")),
+        "corrected_event_type": row.get("corrected_event_type"),
+        "notes": row.get("notes") or "",
+        "sam3_prompt": row.get("sam3_prompt"),
+        "sam3_matched_frames": as_int(row.get("sam3_matched_frames")),
+        "sam3_sampled_frames": as_int(row.get("sam3_sampled_frames")),
+        "reviewer": row.get("reviewer"),
+        "submitted_at": row.get("submitted_at"),
     }
 
 
 async def event_list(_: Request) -> JSONResponse:
-    try:
-        items = await call_sdk(list_directory, EVENTS_DIR)
-    except NotFound:
-        return JSONResponse({"items": [], "root": EVENTS_DIR})
-    names = sorted(
-        entry.name
-        for entry in items
-        if entry.name and not entry.is_directory and entry.name.endswith(".json")
-    )[:MAX_LISTED_EVENTS]
-    summaries = []
-    for name in names:
-        event = await read_json(f"{EVENTS_DIR}/{name}")
-        if not event or not event.get("event_id"):
-            continue
-        reviews = await list_reviews(safe_event_id(str(event["event_id"])))
-        summaries.append(event_summary(event, reviews[-1] if reviews else None))
-    summaries.sort(key=lambda item: str(item.get("recorded_at") or ""), reverse=True)
-    return JSONResponse({"items": summaries, "root": EVENTS_DIR})
+    rows = await call_sdk(
+        run_sql,
+        f"""
+        SELECT event_id, event_type, event_label, clip, vehicle_id,
+               date_format(recorded_at, "yyyy-MM-dd'T'HH:mm:ss'Z'") AS recorded_at,
+               edge_severity, review_status, reviewed_severity, edge_classification_correct,
+               reviewed_by
+        FROM {quoted_table(EVENTS_TABLE)}
+        ORDER BY review_status = 'reviewed', recorded_at DESC
+        LIMIT {MAX_LISTED_EVENTS}
+        """,
+    )
+    items = [
+        {
+            **row,
+            "review_status": "reviewed" if row.get("review_status") == "reviewed" else "pending",
+            "edge_classification_correct": as_bool(row.get("edge_classification_correct")),
+        }
+        for row in rows
+    ]
+    return JSONResponse({"items": items, "table": EVENTS_TABLE})
 
 
 async def event_detail(request: Request) -> JSONResponse:
     event_id = safe_event_id(request.path_params["event_id"])
-    event = await read_json(f"{EVENTS_DIR}/{event_id}.json")
-    if not event:
+    rows = await call_sdk(
+        run_sql,
+        f"SELECT payload, review_status FROM {quoted_table(EVENTS_TABLE)} WHERE event_id = :event_id",
+        {"event_id": event_id},
+    )
+    if not rows:
         raise HTTPException(404, "The event was not found.")
+    try:
+        event = json.loads(rows[0].get("payload") or "{}")
+    except json.JSONDecodeError as error:
+        raise HTTPException(500, "The event payload is not valid JSON.") from error
     clip = safe_video_name(str(event.get("clip", "")))
     has_output = await metadata_exists(rooted_path(OUTPUTS_DIR, clip))
+    reviews = await call_sdk(
+        run_sql,
+        f"""
+        SELECT event_id, severity, edge_classification_correct, corrected_event_type, notes,
+               sam3_prompt, sam3_matched_frames, sam3_sampled_frames, reviewer,
+               date_format(submitted_at, "yyyy-MM-dd'T'HH:mm:ss'Z'") AS submitted_at
+        FROM {quoted_table(REVIEWS_TABLE)}
+        WHERE event_id = :event_id
+        ORDER BY submitted_at
+        """,
+        {"event_id": event_id},
+    )
     return JSONResponse(
         {
             "event": event,
+            "review_status": "reviewed" if rows[0].get("review_status") == "reviewed" else "pending",
             "clip_url": f"/api/source-media/{quote(clip)}",
             "output_url": f"/api/media/{quote(clip)}" if has_output else None,
-            "reviews": await list_reviews(event_id),
+            "reviews": [review_record(row) for row in reviews],
+            "event_types": list(EVENT_TYPES),
         }
     )
 
 
 async def submit_review(request: Request) -> JSONResponse:
     event_id = safe_event_id(request.path_params["event_id"])
-    if not await metadata_exists(f"{EVENTS_DIR}/{event_id}.json"):
-        raise HTTPException(404, "The event was not found.")
     try:
         payload = await request.json()
     except Exception as error:
@@ -878,22 +961,91 @@ async def submit_review(request: Request) -> JSONResponse:
     notes = str(payload.get("notes", "")).strip()
     if len(notes) > MAX_REVIEW_NOTES:
         raise HTTPException(400, f"Notes must be {MAX_REVIEW_NOTES:,} characters or fewer.")
+    corrected = str(payload.get("corrected_event_type") or "").strip().lower() or None
+    if edge_correct:
+        corrected = None
+    else:
+        if corrected not in EVENT_TYPES:
+            raise HTTPException(400, "Choose what the event actually was.")
+        if not notes:
+            raise HTTPException(400, "Add a note explaining the misclassification.")
     prompt = str(payload.get("sam3_prompt", "")).strip()[:200] or None
+    matched = as_int(payload.get("sam3_matched_frames"))
+    sampled = as_int(payload.get("sam3_sampled_frames"))
 
-    submitted = now_utc()
-    review = {
+    events = await call_sdk(
+        run_sql,
+        f"SELECT event_type, edge_severity FROM {quoted_table(EVENTS_TABLE)} WHERE event_id = :event_id",
+        {"event_id": event_id},
+    )
+    if not events:
+        raise HTTPException(404, "The event was not found.")
+
+    reviewer = reviewer_identity(request)
+    submitted = now_utc().isoformat().replace("+00:00", "Z")
+    values = {
+        "review_id": f"{event_id}-{submitted}",
         "event_id": event_id,
+        "edge_event_type": events[0].get("event_type"),
+        "edge_severity": events[0].get("edge_severity"),
         "severity": severity,
-        "edge_classification_correct": edge_correct,
+        "edge_correct": edge_correct,
+        "corrected": corrected,
         "notes": notes,
-        "sam3_prompt": prompt,
-        "reviewer": reviewer_identity(request),
-        "submitted_at": submitted.isoformat().replace("+00:00", "Z"),
+        "prompt": prompt,
+        "matched": matched,
+        "sampled": sampled,
+        "reviewer": reviewer,
+        "submitted": submitted,
     }
-    # One immutable file per submission keeps a full review history.
-    destination = f"{REVIEWS_DIR}/{event_id}/{submitted.strftime('%Y%m%dT%H%M%S%fZ')}.json"
-    await call_sdk(upload_text, json.dumps(review, indent=2), destination)
-    return JSONResponse(review, status_code=201)
+    await call_sdk(
+        run_sql,
+        f"""
+        INSERT INTO {quoted_table(REVIEWS_TABLE)} (
+          review_id, event_id, edge_event_type, edge_severity, severity,
+          edge_classification_correct, corrected_event_type, notes, sam3_prompt,
+          sam3_matched_frames, sam3_sampled_frames, reviewer, submitted_at
+        ) VALUES (
+          :review_id, :event_id, :edge_event_type, :edge_severity, :severity,
+          :edge_correct, :corrected, :notes, :prompt,
+          :matched, :sampled, :reviewer, to_timestamp(:submitted)
+        )
+        """,
+        values,
+    )
+    await call_sdk(
+        run_sql,
+        f"""
+        UPDATE {quoted_table(EVENTS_TABLE)}
+        SET review_status = 'reviewed', reviewed_severity = :severity,
+            edge_classification_correct = :edge_correct, corrected_event_type = :corrected,
+            reviewed_by = :reviewer, reviewed_at = to_timestamp(:submitted)
+        WHERE event_id = :event_id
+        """,
+        {
+            "severity": severity,
+            "edge_correct": edge_correct,
+            "corrected": corrected,
+            "reviewer": reviewer,
+            "submitted": submitted,
+            "event_id": event_id,
+        },
+    )
+    return JSONResponse(
+        {
+            "event_id": event_id,
+            "severity": severity,
+            "edge_classification_correct": edge_correct,
+            "corrected_event_type": corrected,
+            "notes": notes,
+            "sam3_prompt": prompt,
+            "sam3_matched_frames": matched,
+            "sam3_sampled_frames": sampled,
+            "reviewer": reviewer,
+            "submitted_at": submitted,
+        },
+        status_code=201,
+    )
 
 
 async def source_media(request: Request) -> StreamingResponse:
@@ -934,7 +1086,7 @@ async def spa(request: Request) -> Response:
     if PurePosixPath(path).suffix:
         raise HTTPException(404, "Static asset not found.")
     if index_path.is_file():
-        return FileResponse(index_path)
+        return FileResponse(index_path, headers={"Cache-Control": "no-cache"})
     return JSONResponse(
         {"error": {"message": "Frontend assets have not been built."}},
         status_code=503,
