@@ -1,5 +1,8 @@
-# Setup -> model export -> single-node benchmark, all on one single-node job cluster.
-# The node matches the benchmark workers (node_type_id) so per-core numbers are comparable.
+# Setup -> model export -> single-node benchmark, all on one small job cluster: driver + 1 worker,
+# both node_type_id (8 vCPUs with the defaults). A real single-node cluster would need
+# spark.databricks.cluster.profile, which compute policies such as "Job Compute" forbid.
+# The notebooks' work (copies, export, 02's timing) runs on the driver, which matches the benchmark
+# workers (node_type_id) so per-core numbers are comparable.
 resources:
   jobs:
     video_cls_setup:
@@ -15,16 +18,17 @@ resources:
           new_cluster:
             spark_version: ${var.spark_version}
             node_type_id: ${var.node_type_id}
-            num_workers: 0
+            driver_node_type_id: ${var.node_type_id}
+            num_workers: 1
+            policy_id: ${var.policy_id}
+            apply_policy_default_values: true
+            azure_attributes:
+              availability: ON_DEMAND_AZURE
             data_security_mode: SINGLE_USER           # dedicated: /Volumes paths work in UDFs
             single_user_name: ${workspace.current_user.userName}
             runtime_engine: STANDARD                  # Photon off: no gain for Python UDFs
             spark_conf:
-              spark.master: "local[*, 4]"
-              spark.databricks.cluster.profile: singleNode
               spark.sql.execution.arrow.maxRecordsPerBatch: "64"
-            custom_tags:
-              ResourceClass: SingleNode
 
       tasks:
         - task_key: setup

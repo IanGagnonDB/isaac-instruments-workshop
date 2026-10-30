@@ -64,6 +64,19 @@ def cluster_shape(spark):
     }
 
 
+def plan_passes(run_label, task_caps, n_partitions, total_cores, max_clips):
+    """Benchmark passes for 03_cluster_bench: one per cap, or a single pass using every slot.
+
+    A cap k runs with exactly k partitions, so at most k tasks (= k cores) are busy, and reads
+    its own slice of clips (offset, limit by clip_id) so later passes never reuse cached files.
+    """
+    if not task_caps:
+        return [{"label": run_label, "partitions": n_partitions, "cores": total_cores,
+                 "offset": 0, "limit": max_clips}]
+    return [{"label": f"{run_label}_cap{k}", "partitions": k, "cores": k,
+             "offset": i * max_clips, "limit": max_clips} for i, k in enumerate(task_caps)]
+
+
 class Stopwatch:
     def __enter__(self):
         self.started = time.perf_counter()

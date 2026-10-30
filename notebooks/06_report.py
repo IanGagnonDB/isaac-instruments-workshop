@@ -56,7 +56,7 @@ plt.show()
 
 # COMMAND ----------
 # Chart 3: where the time goes. Extraction is shared by all variants on a cluster.
-share = scaling.assign(cluster=scaling.num_workers.astype(str) + "w").sort_values("total_cores")
+share = scaling.assign(cluster=scaling.run_label).sort_values("total_cores")   # 2w, 4w, ... or sweep_cap4, ...
 share = share.assign(extract_pct=100 * share.extract_s / (share.extract_s + share.inference_s))
 pivot = share.pivot_table(index="cluster", columns="series", values="extract_pct", sort=False)
 ax = pivot.plot.bar(figsize=(10, 4.5), rot=0)

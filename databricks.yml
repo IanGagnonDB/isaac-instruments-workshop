@@ -16,6 +16,12 @@ variables:
   schema:
     description: Schema for tables and the volume. Created by 00_setup if missing.
     default: CHANGE_ME_SCHEMA
+  # EDIT THIS TOO: the name of the compute policy your job clusters must use. The bundle looks up its
+  # ID at deploy time and attaches it to every classic job cluster (setup, benchmark, fine-tune).
+  policy_id:
+    description: Compute policy attached to every classic job cluster (looked up by name).
+    lookup:
+      cluster_policy: Job Compute
 
   volume:
     description: Volume holding clips/, json/, models/ and labels/.
@@ -28,12 +34,19 @@ variables:
   n_clips:
     description: Number of clip_ids to create by replicating the source clips.
     default: "1000"
+  # Low-vCPU defaults (this branch): every classic cluster is built from 4-vCPU nodes, and the
+  # largest one (the benchmark) is 1 driver + bench_workers workers = 20 vCPUs at peak.
   node_type_id:
-    description: Worker node type. Compute-optimized, 8 to 16 vCPUs. Check quota in your region.
-    default: Standard_F16s_v2
+    description: Worker node type, also the setup driver (single-node benchmark). 4 vCPUs, 8 GB.
+    default: Standard_F4s_v2
   driver_node_type_id:
-    description: Small driver for the multi-node benchmark clusters.
-    default: Standard_F8s_v2
+    description: Driver of the benchmark cluster.
+    default: Standard_F4s_v2
+  bench_workers:
+    description: >-
+      Workers in the benchmark cluster. Peak vCPUs = (bench_workers + 1) x 4. The core sweep
+      (task_caps on the benchmark job) can go up to bench_workers x 4 cores.
+    default: "4"
   spark_version:
     description: Latest LTS ML CPU runtime. Verified with `databricks clusters spark-versions`.
     default: 18.x-cpu-ml-scala2.13

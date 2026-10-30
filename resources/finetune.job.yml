@@ -1,4 +1,4 @@
-# Optional Step 8: fine-tune ResNet-18 as stop_sign_visible yes/no on a single CPU node.
+# Optional Step 8: fine-tune ResNet-18 as stop_sign_visible yes/no on a small CPU cluster (training runs on the driver).
 resources:
   jobs:
     video_cls_finetune_optional:
@@ -13,18 +13,18 @@ resources:
 
       job_clusters:
         - job_cluster_key: single_node
-          new_cluster:
+          new_cluster:                                # driver + 1 worker: policies may forbid single-node
             spark_version: ${var.spark_version}
             node_type_id: ${var.node_type_id}
-            num_workers: 0
+            driver_node_type_id: ${var.node_type_id}
+            num_workers: 1
+            policy_id: ${var.policy_id}
+            apply_policy_default_values: true
+            azure_attributes:
+              availability: ON_DEMAND_AZURE
             data_security_mode: SINGLE_USER
             single_user_name: ${workspace.current_user.userName}
             runtime_engine: STANDARD
-            spark_conf:
-              spark.master: "local[*, 4]"
-              spark.databricks.cluster.profile: singleNode
-            custom_tags:
-              ResourceClass: SingleNode
 
       tasks:
         - task_key: finetune
